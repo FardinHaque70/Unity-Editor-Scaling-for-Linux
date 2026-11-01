@@ -1,0 +1,30 @@
+name: Build and test KDE beta
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and GUI test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang pkg-config libxcb1-dev libxcb-cursor-dev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xwayland xvfb xauth desktop-file-utils
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build locked bridge and test
+        run: ./packaging/build-bridge.sh
+      - name: Test Python and GTK
+        run: |
+          UNITY_SCALE_TEST_GUI=1 GSETTINGS_BACKEND=memory GTK_A11Y=none GDK_BACKEND=x11 xvfb-run -a python3 -m unittest discover -s tests -v
+          GSETTINGS_BACKEND=memory GTK_A11Y=none GDK_BACKEND=x11 xvfb-run -a ./bin/unity-scale --smoke-test
+          desktop-file-validate resources/io.github.unityscale.UnityScale.desktop
+      - name: Create packages
+        run: python3 packaging/release.py --label linux-x86_64-ubuntu24.04
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-scale-kde-beta
+          path: dist/*

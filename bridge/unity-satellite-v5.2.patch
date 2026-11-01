@@ -1,0 +1,3014 @@
+diff --git a/src/server/cursor.rs b/src/server/cursor.rs
+new file mode 100644
+index 0000000..ef58b84
+--- /dev/null
++++ b/src/server/cursor.rs
+@@ -0,0 +1,124 @@
++use super::*;
++use hecs::World;
++use wayland_client::protocol::wl_pointer::WlPointer as ClientPointer;
++use wayland_protocols::wp::tablet::zv2::client::zwp_tablet_tool_v2::ZwpTabletToolV2;
++use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
++
++#[derive(Copy, Clone)]
++pub(super) struct BufferDimensions {
++    pub width: i32,
++    pub height: i32,
++}
++
++#[derive(Copy, Clone)]
++pub(super) struct AttachedBufferDimensions(pub Option<BufferDimensions>);
++
++pub(super) struct SurfaceBufferScale(pub i32);
++pub(super) struct CursorSurface;
++
++#[derive(Copy, Clone)]
++pub(super) struct CursorRequest {
++    pub surface: Option<Entity>,
++    pub serial: u32,
++    pub hotspot_x: i32,
++    pub hotspot_y: i32,
++}
++
++fn cursor_hotspot(value: i32, incoming_buffer_scale: i32, render_scale: i32) -> i32 {
++    // XWayland's request is already in its own surface coordinates. Recover
++    // buffer coordinates before mapping into our fixed-density cursor surface.
++    (i64::from(value) * i64::from(incoming_buffer_scale) / i64::from(render_scale)) as i32
++}
++
++pub(super) fn update_cursor_viewport(world: &World, surface: Entity, render_scale: i32) {
++    let viewport = world.get::<&WpViewport>(surface).unwrap();
++    let dimensions = world.get::<&AttachedBufferDimensions>(surface).ok();
++    if let Some(dimensions) = dimensions.as_deref().and_then(|dimensions| dimensions.0) {
++        let width = (f64::from(dimensions.width) / f64::from(render_scale)).ceil() as i32;
++        let height = (f64::from(dimensions.height) / f64::from(render_scale)).ceil() as i32;
++        if width > 0 && height > 0 {
++            // Destination is absolute surface size: incoming buffer_scale must
++            // not be divided out again. This also supports odd-sized bitmaps.
++            viewport.set_destination(width, height);
++        }
++    } else {
++        viewport.set_destination(-1, -1);
++    }
++}
++
++fn forward_cursor(
++    world: &World,
++    controller: Entity,
++    request: CursorRequest,
++    render_scale: i32,
++    incoming_buffer_scale: Option<i32>,
++) {
++    let surface = request
++        .surface
++        .and_then(|surface| world.get::<&client::wl_surface::WlSurface>(surface).ok());
++    let buffer_scale = incoming_buffer_scale.unwrap_or_else(|| {
++        request
++            .surface
++            .and_then(|surface| {
++                world
++                    .get::<&SurfaceBufferScale>(surface)
++                    .ok()
++                    .map(|scale| scale.0)
++            })
++            .unwrap_or(1)
++    });
++    let x = cursor_hotspot(request.hotspot_x, buffer_scale, render_scale);
++    let y = cursor_hotspot(request.hotspot_y, buffer_scale, render_scale);
++    if let Ok(pointer) = world.get::<&ClientPointer>(controller) {
++        pointer.set_cursor(request.serial, surface.as_deref(), x, y);
++    } else if let Ok(tool) = world.get::<&ZwpTabletToolV2>(controller) {
++        tool.set_cursor(request.serial, surface.as_deref(), x, y);
++    }
++}
++
++pub(super) fn set_fixed_cursor(
++    world: &mut World,
++    controller: Entity,
++    request: CursorRequest,
++    render_scale: i32,
++) {
++    if let Some(surface) = request.surface {
++        world.insert_one(surface, CursorSurface).unwrap();
++        update_cursor_viewport(world, surface, render_scale);
++    }
++    world.insert_one(controller, request).unwrap();
++    forward_cursor(world, controller, request, render_scale, None);
++}
++
++pub(super) fn refresh_cursor_hotspots(
++    world: &World,
++    surface: Entity,
++    incoming_buffer_scale: i32,
++    render_scale: i32,
++) {
++    for (controller, request) in world.query::<&CursorRequest>().iter() {
++        if request.surface == Some(surface) {
++            forward_cursor(
++                world,
++                controller,
++                *request,
++                render_scale,
++                Some(incoming_buffer_scale),
++            );
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::cursor_hotspot;
++
++    #[test]
++    fn cursor_hotspot_accounts_for_existing_buffer_scale() {
++        assert_eq!(cursor_hotspot(24, 1, 2), 12);
++        assert_eq!(cursor_hotspot(12, 2, 2), 12);
++        assert_eq!(cursor_hotspot(12, 3, 3), 12);
++        assert_eq!(cursor_hotspot(0, 1, 2), 0);
++        assert_eq!(cursor_hotspot(-24, 1, 2), -12);
++    }
++}
+diff --git a/src/server/dispatch.rs b/src/server/dispatch.rs
+index 3815022..08c2d82 100644
+--- a/src/server/dispatch.rs
++++ b/src/server/dispatch.rs
+@@ -100,6 +100,17 @@ impl<S: X11Selection> Dispatch<WlSurface, Entity> for InnerServerState<S> {
+ 
+         match request {
+             Request::<WlSurface>::Attach { buffer, x, y } => {
++                if state.fixed_render_scale.is_some() {
++                    let dimensions = buffer.as_ref().and_then(|buffer| {
++                        let buffer_entity: Entity = buffer.data().copied()?;
++                        state
++                            .world
++                            .get::<&BufferDimensions>(buffer_entity)
++                            .ok()
++                            .map(|dimensions| *dimensions)
++                    });
++                    cmd.insert_one(*entity, AttachedBufferDimensions(dimensions));
++                }
+                 if buffer.is_none() {
+                     trace!("xwayland attached null buffer to {client:?}");
+                 }
+@@ -137,6 +148,11 @@ impl<S: X11Selection> Dispatch<WlSurface, Entity> for InnerServerState<S> {
+                 }
+             }
+             Request::<WlSurface>::Commit => {
++                if let Some(scale) = state.fixed_render_scale {
++                    if data.has::<CursorSurface>() {
++                        update_cursor_viewport(&state.world, *entity, scale);
++                    }
++                }
+                 if configured {
+                     client.commit();
+                 }
+@@ -168,6 +184,12 @@ impl<S: X11Selection> Dispatch<WlSurface, Entity> for InnerServerState<S> {
+             }
+             Request::<WlSurface>::SetBufferScale { scale } => {
+                 client.set_buffer_scale(scale);
++                if let Some(render_scale) = state.fixed_render_scale {
++                    cmd.insert_one(*entity, SurfaceBufferScale(scale));
++                    if data.has::<CursorSurface>() {
++                        refresh_cursor_hotspots(&state.world, *entity, scale, render_scale);
++                    }
++                }
+             }
+             Request::<WlSurface>::SetInputRegion { region } => {
+                 let region = region.as_ref().map(|r| r.data().unwrap());
+@@ -303,7 +325,9 @@ impl<S: X11Selection> Dispatch<WlShmPool, client::wl_shm_pool::WlShmPool> for In
+                     entity,
+                 );
+                 let server = data_init.init(id, entity);
+-                state.world.spawn_at(entity, (client, server));
++                state
++                    .world
++                    .spawn_at(entity, (client, server, BufferDimensions { width, height }));
+             }
+             Request::<WlShmPool>::Resize { size } => {
+                 c_pool.resize(size);
+@@ -358,6 +382,21 @@ impl<S: X11Selection> Dispatch<WlPointer, Entity> for InnerServerState<S> {
+                 hotspot_y,
+                 surface,
+             } => {
++                if let Some(scale) = state.fixed_render_scale {
++                    let surface = surface.map(|surface| surface.data().copied().unwrap());
++                    set_fixed_cursor(
++                        &mut state.world,
++                        *entity,
++                        CursorRequest {
++                            surface,
++                            serial,
++                            hotspot_x,
++                            hotspot_y,
++                        },
++                        scale,
++                    );
++                    return;
++                }
+                 let c_pointer = state
+                     .world
+                     .get::<&client::wl_pointer::WlPointer>(*entity)
+@@ -537,7 +576,10 @@ impl<S: X11Selection>
+                     client.get_relative_pointer(&client_pointer, &state.qh, entity)
+                 };
+                 let server = data_init.init(id, entity);
+-                state.world.spawn_at(entity, (server, client));
++                state.world.spawn_at(
++                    entity,
++                    (server, client, RelativePointerSource(pointer_entity)),
++                );
+             }
+             _ => warn!("unhandled relative pointer request: {request:?}"),
+         }
+@@ -634,7 +676,9 @@ impl<S: X11Selection>
+                     entity,
+                 );
+                 let server = data_init.init(buffer_id, entity);
+-                state.world.spawn_at(entity, (client, server));
++                state
++                    .world
++                    .spawn_at(entity, (client, server, BufferDimensions { width, height }));
+             }
+             Add {
+                 fd,
+@@ -729,6 +773,7 @@ impl<S: X11Selection> Dispatch<WlDrmServer, Entity> for InnerServerState<S> {
+         ) -> client::wl_buffer::WlBuffer;
+ 
+         let mut bufs: Option<(Box<DrmFn>, wayland_server::New<WlBuffer>)> = None;
++        let mut dimensions = None;
+         match request {
+             CreateBuffer {
+                 id,
+@@ -738,6 +783,7 @@ impl<S: X11Selection> Dispatch<WlDrmServer, Entity> for InnerServerState<S> {
+                 stride,
+                 format,
+             } => {
++                dimensions = Some(BufferDimensions { width, height });
+                 bufs = Some((
+                     Box::new(move |drm, key, qh| {
+                         drm.create_buffer(name, width, height, stride, format, qh, key)
+@@ -758,6 +804,7 @@ impl<S: X11Selection> Dispatch<WlDrmServer, Entity> for InnerServerState<S> {
+                 offset2,
+                 stride2,
+             } => {
++                dimensions = Some(BufferDimensions { width, height });
+                 bufs = Some((
+                     Box::new(move |drm, key, qh| {
+                         drm.create_planar_buffer(
+@@ -781,6 +828,7 @@ impl<S: X11Selection> Dispatch<WlDrmServer, Entity> for InnerServerState<S> {
+                 offset2,
+                 stride2,
+             } => {
++                dimensions = Some(BufferDimensions { width, height });
+                 bufs = Some((
+                     Box::new(move |drm, key, qh| {
+                         drm.create_prime_buffer(
+@@ -821,7 +869,9 @@ impl<S: X11Selection> Dispatch<WlDrmServer, Entity> for InnerServerState<S> {
+                 buf_create(&drm_client, new_entity, &state.qh)
+             };
+             let server = data_init.init(id, new_entity);
+-            state.world.spawn_at(new_entity, (client, server));
++            state
++                .world
++                .spawn_at(new_entity, (client, server, dimensions.unwrap()));
+         }
+     }
+ }
+@@ -1147,6 +1197,22 @@ impl<S: X11Selection> Dispatch<s_tablet::zwp_tablet_tool_v2::ZwpTabletToolV2, En
+                 hotspot_x,
+                 hotspot_y,
+             } => {
++                if let Some(scale) = state.fixed_render_scale {
++                    drop(client);
++                    let surface = surface.map(|surface| surface.data().copied().unwrap());
++                    set_fixed_cursor(
++                        &mut state.world,
++                        *entity,
++                        CursorRequest {
++                            surface,
++                            serial,
++                            hotspot_x,
++                            hotspot_y,
++                        },
++                        scale,
++                    );
++                    return;
++                }
+                 let surf_key: Option<Entity> = surface.map(|s| s.data().copied().unwrap());
+                 let c_surface = surf_key.map(|key| {
+                     state
+@@ -1462,6 +1528,9 @@ impl<S: X11Selection> GlobalDispatch<WlOutput, Global> for InnerServerState<S> {
+     ) {
+         let entity = state.world.reserve_entity();
+         let server = data_init.init(resource, entity);
++        if let Some(scale) = state.fixed_render_scale {
++            server.scale(scale);
++        }
+         let client = state
+             .world
+             .global_list
+@@ -1472,12 +1541,16 @@ impl<S: X11Selection> GlobalDispatch<WlOutput, Global> for InnerServerState<S> {
+                 &state.qh,
+                 entity,
+             );
++        let output_scale = state
++            .fixed_window_scale()
++            .map(event::OutputScaleFactor::Fractional)
++            .unwrap_or(event::OutputScaleFactor::Output(1));
+         state.world.spawn_at(
+             entity,
+             (
+                 server,
+                 client,
+-                event::OutputScaleFactor::Output(1),
++                output_scale,
+                 event::OutputDimensions::default(),
+                 GlobalName(data.name),
+             ),
+diff --git a/src/server/event.rs b/src/server/event.rs
+index acf51d9..6d25cc8 100644
+--- a/src/server/event.rs
++++ b/src/server/event.rs
+@@ -302,12 +302,24 @@ impl SurfaceEvents {
+             let window = *window;
+             let x = (pending.x.max(0) as f64 * scale_factor.0) as i32 + window_data.output_offset.x;
+             let y = (pending.y.max(0) as f64 * scale_factor.0) as i32 + window_data.output_offset.y;
+-            let width = if pending.width > 0 {
++            let native_size = match role {
++                SurfaceRole::Popup(Some(popup)) => popup.native_size,
++                _ => None,
++            };
++            let width = if let Some(requested) =
++                native_size.filter(|size| size.logical.0 == pending.width)
++            {
++                requested.pixels.0
++            } else if pending.width > 0 {
+                 (pending.width as f64 * scale_factor.0) as u16
+             } else {
+                 window_data.attrs.dims.width
+             };
+-            let height = if pending.height > 0 {
++            let height = if let Some(requested) =
++                native_size.filter(|size| size.logical.1 == pending.height)
++            {
++                requested.pixels.1
++            } else if pending.height > 0 {
+                 let mut logical_height = pending.height;
+                 if let SurfaceRole::Toplevel(Some(toplevel)) = role {
+                     if let Some(d) = &toplevel.decoration.satellite {
+@@ -1059,7 +1071,16 @@ enum OutputDimensionsSource {
+     Xdg,
+ }
+ 
++#[derive(Copy, Clone)]
++struct HostOutputMode {
++    flags: WEnum<client::wl_output::Mode>,
++    refresh: i32,
++}
++
+ pub(super) struct OutputDimensions {
++    host_logical_size: Option<(i32, i32)>,
++    host_logical_position: (i32, i32),
++    host_mode: Option<HostOutputMode>,
+     source: OutputDimensionsSource,
+     pub x: i32,
+     pub y: i32,
+@@ -1071,6 +1092,9 @@ pub(super) struct OutputDimensions {
+ impl Default for OutputDimensions {
+     fn default() -> Self {
+         Self {
++            host_logical_size: None,
++            host_logical_position: (0, 0),
++            host_mode: None,
+             source: OutputDimensionsSource::Wl {
+                 physical_height: 0,
+                 physical_width: 0,
+@@ -1088,11 +1112,55 @@ impl Default for OutputDimensions {
+     }
+ }
+ 
++fn scale_output_coordinate(value: i32, scale: f64) -> i32 {
++    (f64::from(value) * scale).round() as i32
++}
++
++fn update_fixed_output_geometry(
++    output: &WlOutput,
++    xdg: Option<&XdgOutputServer>,
++    dimensions: &mut OutputDimensions,
++    scale: f64,
++) {
++    let Some((logical_width, logical_height)) = dimensions.host_logical_size else {
++        return;
++    };
++    // Transform shared rectangle edges once, rather than independently rounding
++    // origin and extent, so adjacent monitors cannot gain a one-pixel gap.
++    let extent = |origin: i32, length: i32| {
++        ((f64::from(origin) + f64::from(length)) * scale).round()
++            - (f64::from(origin) * scale).round()
++    };
++    let width = extent(dimensions.host_logical_position.0, logical_width) as i32;
++    let height = extent(dimensions.host_logical_position.1, logical_height) as i32;
++    (dimensions.width, dimensions.height) = if dimensions.rotated_90 {
++        (height, width)
++    } else {
++        (width, height)
++    };
++    if let Some(mode) = dimensions.host_mode {
++        output.mode(
++            convert_wenum(mode.flags),
++            dimensions.width,
++            dimensions.height,
++            mode.refresh,
++        );
++    }
++    if let Some(xdg) = xdg {
++        xdg.logical_size(width, height);
++        if xdg.version() < 3 {
++            xdg.done();
++        }
++    }
++    output.done();
++}
++
+ fn update_output_offset(
+     output: Entity,
+     source: OutputDimensionsSource,
+     x: i32,
+     y: i32,
++    host_position: (i32, i32),
+     state: &mut ServerState<impl XConnection>,
+ ) {
+     let connection = &mut state.connection;
+@@ -1107,6 +1175,8 @@ fn update_output_offset(
+             return;
+         }
+ 
++        dimensions.host_logical_position = host_position;
++
+         let global_offset = &mut state.global_output_offset;
+         let mut maybe_update_dimension = |value, dim: &mut GlobalOutputOffsetDimension| {
+             if value < dim.value {
+@@ -1262,6 +1332,10 @@ impl OutputEvent {
+                 model,
+                 transform,
+             } => {
++                let fixed_scale = state.fixed_window_scale();
++                let host_position = (x, y);
++                let x = scale_output_coordinate(x, fixed_scale.unwrap_or(1.0));
++                let y = scale_output_coordinate(y, fixed_scale.unwrap_or(1.0));
+                 update_output_offset(
+                     target,
+                     OutputDimensionsSource::Wl {
+@@ -1274,6 +1348,7 @@ impl OutputEvent {
+                     },
+                     x,
+                     y,
++                    host_position,
+                     state,
+                 );
+                 let global_output_offset = state.global_output_offset;
+@@ -1287,8 +1362,16 @@ impl OutputEvent {
+                 };
+ 
+                 output.geometry(
+-                    x - global_output_offset.x.value,
+-                    y - global_output_offset.y.value,
++                    if fixed_scale.is_some() {
++                        dimensions.x
++                    } else {
++                        x
++                    } - global_output_offset.x.value,
++                    if fixed_scale.is_some() {
++                        dimensions.y
++                    } else {
++                        y
++                    } - global_output_offset.y.value,
+                     physical_width,
+                     physical_height,
+                     convert_wenum(subpixel),
+@@ -1305,7 +1388,9 @@ impl OutputEvent {
+                             | client::wl_output::Transform::Flipped270
+                     )
+                 });
+-                if let Some(xdg) = xdg {
++                if let Some(scale) = fixed_scale {
++                    update_fixed_output_geometry(output, xdg, dimensions, scale);
++                } else if let Some(xdg) = xdg {
+                     if dimensions.rotated_90 {
+                         xdg.logical_size(dimensions.height, dimensions.width);
+                     } else {
+@@ -1319,12 +1404,25 @@ impl OutputEvent {
+                 height,
+                 refresh,
+             } => {
+-                let Ok((output, dimensions)) = state
+-                    .world
+-                    .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
+-                else {
++                let fixed_scale = state.fixed_window_scale();
++                let Ok((output, dimensions, xdg)) = state.world.query_one_mut::<(
++                    &WlOutput,
++                    &mut OutputDimensions,
++                    Option<&XdgOutputServer>,
++                )>(target) else {
+                     return;
+                 };
++                if let Some(scale) = fixed_scale {
++                    // Only the current mode has matching authoritative logical geometry.
++                    if flags
++                        .into_result()
++                        .is_ok_and(|flags| flags.contains(client::wl_output::Mode::Current))
++                    {
++                        dimensions.host_mode = Some(HostOutputMode { flags, refresh });
++                        update_fixed_output_geometry(output, xdg, dimensions, scale);
++                    }
++                    return;
++                }
+ 
+                 if flags
+                     .into_result()
+@@ -1337,13 +1435,17 @@ impl OutputEvent {
+                 output.mode(convert_wenum(flags), width, height, refresh);
+             }
+             Event::Scale { factor } => {
++                let factor = state.fixed_render_scale.unwrap_or(factor);
+                 debug!(
+                     "{} scale: {factor}",
+                     state.world.get::<&WlOutput>(target).unwrap().id()
+                 );
+                 if update_output_scale(
+                     state.world.query_one(target).unwrap(),
+-                    OutputScaleFactor::Output(factor),
++                    state
++                        .fixed_window_scale()
++                        .map(OutputScaleFactor::Fractional)
++                        .unwrap_or(OutputScaleFactor::Output(factor)),
+                 ) {
+                     state.updated_outputs.push(target);
+                 }
+@@ -1378,7 +1480,19 @@ impl OutputEvent {
+ 
+         match event {
+             Event::LogicalPosition { x, y } => {
+-                update_output_offset(target, OutputDimensionsSource::Xdg, x, y, state);
++                let fixed_scale = state.fixed_window_scale();
++                let scale = fixed_scale.unwrap_or(1.0);
++                let host_position = (x, y);
++                let x = scale_output_coordinate(x, scale);
++                let y = scale_output_coordinate(y, scale);
++                update_output_offset(
++                    target,
++                    OutputDimensionsSource::Xdg,
++                    x,
++                    y,
++                    host_position,
++                    state,
++                );
+                 if !state.global_offset_updated {
+                     state
+                         .world
+@@ -1389,15 +1503,33 @@ impl OutputEvent {
+                             y - state.global_output_offset.y.value,
+                         );
+                 }
++                if let Some(scale) = fixed_scale {
++                    if let Ok((output, xdg, dimensions)) =
++                        state
++                            .world
++                            .query_one_mut::<(&WlOutput, &XdgOutputServer, &mut OutputDimensions)>(
++                                target,
++                            )
++                    {
++                        update_fixed_output_geometry(output, Some(xdg), dimensions, scale);
++                    }
++                }
+             }
+-            Event::LogicalSize { .. } => {
+-                let Ok((xdg, dimensions)) = state
+-                    .world
+-                    .query_one_mut::<(&XdgOutputServer, &OutputDimensions)>(target)
++            Event::LogicalSize { width, height } => {
++                let fixed_scale = state.fixed_window_scale();
++                let Ok((xdg, output, dimensions)) =
++                    state
++                        .world
++                        .query_one_mut::<(&XdgOutputServer, &WlOutput, &mut OutputDimensions)>(
++                            target,
++                        )
+                 else {
+                     return;
+                 };
+-                if dimensions.rotated_90 {
++                dimensions.host_logical_size = Some((width, height));
++                if let Some(scale) = fixed_scale {
++                    update_fixed_output_geometry(output, Some(xdg), dimensions, scale);
++                } else if dimensions.rotated_90 {
+                     xdg.logical_size(dimensions.height, dimensions.width);
+                 } else {
+                     xdg.logical_size(dimensions.width, dimensions.height);
+@@ -1449,20 +1581,49 @@ impl Event for c_dmabuf::zwp_linux_dmabuf_feedback_v1::Event {
+     }
+ }
+ 
++#[derive(Copy, Clone)]
++pub(super) struct RelativePointerSource(pub Entity);
++
++fn relative_pointer_scale(world: &World, pointer: Entity) -> f64 {
++    let Ok(current) = world.get::<&CurrentSurface>(pointer) else {
++        return 1.0;
++    };
++    match *current {
++        CurrentSurface::Xwayland(surface) => world
++            .get::<&SurfaceScaleFactor>(surface)
++            .map(|scale| scale.0)
++            .unwrap_or(1.0),
++        CurrentSurface::Decoration(_) => 1.0,
++    }
++}
++
+ impl Event for zwp_relative_pointer_v1::Event {
+     fn handle<C: XConnection>(self, target: Entity, state: &mut ServerState<C>) {
++        let source = state.world.get::<&RelativePointerSource>(target).unwrap().0;
++        let scale = relative_pointer_scale(&state.world, source);
+         let server = state.world.get::<&RelativePointerServer>(target).unwrap();
+-        simple_event_shunt! {
+-            server, self => [
+-                RelativeMotion {
++        match self {
++            Self::RelativeMotion {
++                utime_hi,
++                utime_lo,
++                dx,
++                dy,
++                dx_unaccel,
++                dy_unaccel,
++            } => {
++                // Accelerated deltas use the focused surface's logical coordinates,
++                // like wl_pointer.motion. XWayland sees buffer coordinates instead.
++                // Unaccelerated deltas retain the host's original units.
++                server.relative_motion(
+                     utime_hi,
+                     utime_lo,
+-                    dx,
+-                    dy,
++                    dx * scale,
++                    dy * scale,
+                     dx_unaccel,
+-                    dy_unaccel
+-                }
+-            ]
++                    dy_unaccel,
++                );
++            }
++            _ => unreachable!(),
+         }
+     }
+ }
+@@ -1749,3 +1910,27 @@ impl Event for zwp_tablet_pad_strip_v2::Event {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod relative_pointer_scale_tests {
++    use super::*;
++
++    #[test]
++    fn relative_scale_falls_back_for_stale_sources_and_decorations() {
++        let mut world = World::new();
++        let surface = world.spawn((SurfaceScaleFactor(2.0),));
++        let pointer = world.spawn((CurrentSurface::Xwayland(surface),));
++        assert_eq!(relative_pointer_scale(&world, pointer), 2.0);
++        world
++            .insert_one(pointer, CurrentSurface::Decoration(surface))
++            .unwrap();
++        assert_eq!(relative_pointer_scale(&world, pointer), 1.0);
++        world
++            .insert_one(pointer, CurrentSurface::Xwayland(surface))
++            .unwrap();
++        world.despawn(surface).unwrap();
++        assert_eq!(relative_pointer_scale(&world, pointer), 1.0);
++        world.despawn(pointer).unwrap();
++        assert_eq!(relative_pointer_scale(&world, pointer), 1.0);
++    }
++}
+diff --git a/src/server/mod.rs b/src/server/mod.rs
+index a436331..3ed3662 100644
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -1,4 +1,5 @@
+ mod clientside;
++mod cursor;
+ mod decoration;
+ mod dispatch;
+ mod event;
+@@ -6,6 +7,7 @@ pub(crate) mod selection;
+ #[cfg(test)]
+ mod tests;
+ 
++use self::cursor::*;
+ use self::event::*;
+ use crate::xstate::{
+     Decorations, MoveResizeDirection, WindowDims, WindowRole, WmHints, WmName, WmNormalHints,
+@@ -248,6 +250,25 @@ struct PopupData {
+     popup: XdgPopup,
+     positioner: XdgPositioner,
+     xdg: XdgSurfaceData,
++    native_size: Option<PopupNativeSize>,
++}
++
++#[derive(Debug, Copy, Clone)]
++struct PopupNativeSize {
++    pixels: (u16, u16),
++    logical: (i32, i32),
++}
++
++impl PopupNativeSize {
++    fn new(width: u16, height: u16, scale: f64) -> Self {
++        Self {
++            pixels: (width, height),
++            logical: (
++                (f64::from(width) / scale).ceil().max(1.0) as i32,
++                (f64::from(height) / scale).ceil().max(1.0) as i32,
++            ),
++        }
++    }
+ }
+ 
+ trait Event {
+@@ -482,6 +503,8 @@ pub struct InnerServerState<S: X11Selection> {
+     shm: client::wl_shm::WlShm,
+     viewporter: WpViewporter,
+     fractional_scale: Option<WpFractionalScaleManagerV1>,
++    fixed_render_scale: Option<i32>,
++    ui_multiplier: f64,
+     decoration_manager: Option<ZxdgDecorationManagerV1>,
+     selection_states: selection::SelectionStates<S>,
+     last_kb_serial: Option<(client::wl_seat::WlSeat, u32)>,
+@@ -493,6 +516,41 @@ pub struct InnerServerState<S: X11Selection> {
+     current_scale: f64,
+ }
+ 
++fn parse_fixed_render_scale(value: Option<&str>) -> Result<Option<i32>, &'static str> {
++    match value {
++        None => Ok(None),
++        Some(value) => value
++            .parse::<i32>()
++            .ok()
++            .filter(|scale| (1..=4).contains(scale))
++            .map(Some)
++            .ok_or("UNITY_SATELLITE_RENDER_SCALE must be an integer from 1 to 4"),
++    }
++}
++
++fn parse_ui_multiplier(
++    value: Option<&str>,
++    render_scale: Option<i32>,
++) -> Result<f64, &'static str> {
++    let Some(value) = value else {
++        return Ok(1.0);
++    };
++    let Some(render_scale) = render_scale else {
++        return Err("UNITY_SATELLITE_UI_MULTIPLIER requires UNITY_SATELLITE_RENDER_SCALE");
++    };
++    value.parse::<f64>().ok().filter(|multiplier| {
++        let mapping = f64::from(render_scale) / multiplier;
++        multiplier.is_finite() && *multiplier > 0.0 && mapping.is_finite() && mapping > 0.0
++    }).ok_or("UNITY_SATELLITE_UI_MULTIPLIER must be a finite positive number with a finite mapping scale")
++}
++
++impl<S: X11Selection> InnerServerState<S> {
++    fn fixed_window_scale(&self) -> Option<f64> {
++        self.fixed_render_scale
++            .map(|scale| f64::from(scale) / self.ui_multiplier)
++    }
++}
++
+ impl<S: X11Selection> ServerState<NoConnection<S>> {
+     pub fn new(
+         mut dh: DisplayHandle,
+@@ -507,6 +565,20 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+ 
+         let (global_list, queue) = registry_queue_init::<MyWorld>(&connection).unwrap();
+         let qh = queue.handle();
++        let render_scale_env = std::env::var("UNITY_SATELLITE_RENDER_SCALE").ok();
++        let fixed_render_scale = parse_fixed_render_scale(render_scale_env.as_deref())
++            .unwrap_or_else(|message| panic!("{message}"));
++        let ui_multiplier_env = std::env::var("UNITY_SATELLITE_UI_MULTIPLIER").ok();
++        let ui_multiplier = parse_ui_multiplier(ui_multiplier_env.as_deref(), fixed_render_scale)
++            .unwrap_or_else(|message| panic!("{message}"));
++        if fixed_render_scale.is_some() {
++            assert!(
++                global_list.contents().with_list(|globals| globals
++                    .iter()
++                    .any(|global| global.interface == "zxdg_output_manager_v1")),
++                "UNITY_SATELLITE_RENDER_SCALE requires zxdg_output_manager_v1 for accurate logical monitor geometry"
++            );
++        }
+ 
+         let xdg_wm_base = global_list
+             .bind::<XdgWmBase, _, _>(&qh, 2..=6, ())
+@@ -534,14 +606,31 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+             .bind::<WpViewporter, _, _>(&qh, 1..=1, ())
+             .expect("Could not bind wp_viewporter");
+ 
+-        let fractional_scale = global_list
+-            .bind::<WpFractionalScaleManagerV1, _, _>(&qh, 1..=1, ())
+-            .inspect_err(|e| {
++        // Opt-in experiment: use the compositor's integer wl_output scale for
++        // XWayland rendering while keeping the host desktop's fractional scale.
++        // The upstream allocation, viewport and absolute-input transforms remain
++        // responsible for mapping complete windows between those coordinate spaces.
++        let fractional_scale = if fixed_render_scale.is_some()
++            || std::env::var("UNITY_SATELLITE_INTEGER_RENDER").as_deref() == Ok("1")
++        {
++            if let Some(scale) = fixed_render_scale {
+                 warn!(
+-                    "Couldn't bind fractional scale manager: {e}. Fractional scaling will not work."
+-                )
+-            })
+-            .ok();
++                    "Unity fixed rendering scale {scale} enabled; host logical geometry is preserved"
++                );
++            } else {
++                warn!("Unity integer-render experiment enabled; fractional-scale manager disabled");
++            }
++            None
++        } else {
++            global_list
++                .bind::<WpFractionalScaleManagerV1, _, _>(&qh, 1..=1, ())
++                .inspect_err(|e| {
++                    warn!(
++                        "Couldn't bind fractional scale manager: {e}. Fractional scaling will not work."
++                    )
++                })
++                .ok()
++        };
+ 
+         let activation_state = ActivationState::bind(&global_list, &qh)
+             .inspect_err(|e| {
+@@ -583,6 +672,8 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+             shm,
+             viewporter,
+             fractional_scale,
++            fixed_render_scale,
++            ui_multiplier,
+             selection_states,
+             last_kb_serial: None,
+             activation_state,
+@@ -598,8 +689,10 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+             },
+             global_offset_updated: false,
+             updated_outputs: Vec::new(),
+-            new_scale: None,
+-            current_scale: 1.0,
++            new_scale: fixed_render_scale.map(|scale| f64::from(scale) / ui_multiplier),
++            current_scale: fixed_render_scale
++                .map(|scale| f64::from(scale) / ui_multiplier)
++                .unwrap_or(1.0),
+             decoration_manager,
+             world,
+         };
+@@ -692,7 +785,9 @@ impl<C: XConnection> ServerState<C> {
+                 let Ok(output_scale) = self.world.get::<&OutputScaleFactor>(*output) else {
+                     continue;
+                 };
+-                if matches!(*output_scale, OutputScaleFactor::Output(..)) {
++                if self.fixed_render_scale.is_some()
++                    || matches!(*output_scale, OutputScaleFactor::Output(..))
++                {
+                     let mut surface_query = self
+                         .world
+                         .query::<(&OnOutput, &mut SurfaceScaleFactor)>()
+@@ -1125,10 +1220,18 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+                     ((event.x() as i32 - win.output_offset.x) as f64 / scale_factor.0) as i32,
+                     ((event.y() as i32 - win.output_offset.y) as f64 / scale_factor.0) as i32,
+                 );
+-                popup.positioner.set_size(
+-                    1.max((event.width() as f64 / scale_factor.0) as i32),
+-                    1.max((event.height() as f64 / scale_factor.0) as i32),
+-                );
++                let (width, height) = if popup.native_size.is_some() {
++                    let requested =
++                        PopupNativeSize::new(event.width(), event.height(), scale_factor.0);
++                    popup.native_size = Some(requested);
++                    requested.logical
++                } else {
++                    (
++                        1.max((event.width() as f64 / scale_factor.0) as i32),
++                        1.max((event.height() as f64 / scale_factor.0) as i32),
++                    )
++                };
++                popup.positioner.set_size(width, height);
+                 popup.popup.reposition(&popup.positioner, 0);
+             }
+             SurfaceRole::Toplevel(Some(_)) => {
+@@ -1355,7 +1458,9 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+     }
+ 
+     pub fn new_global_scale(&mut self) -> Option<f64> {
+-        self.new_scale.take()
++        self.new_scale
++            .take()
++            .map(|scale| self.fixed_render_scale.map(f64::from).unwrap_or(scale))
+     }
+ 
+     fn handle_activations(&mut self) {
+@@ -1620,11 +1725,22 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+             xdg.id()
+         );
+ 
+-        let positioner = self.xdg_wm_base.create_positioner(&self.qh, ());
+-        positioner.set_size(
++        // Native X11 menu allocations must survive the integral host coordinate
++        // round trip. Request enough host space, then retain the exact native
++        // allocation if the compositor accepts this size.
++        let native_size = self.fixed_render_scale.map(|_| {
++            PopupNativeSize::new(
++                window.attrs.dims.width,
++                window.attrs.dims.height,
++                initial_scale,
++            )
++        });
++        let logical_size = native_size.map(|size| size.logical).unwrap_or((
+             1.max((window.attrs.dims.width as f64 / initial_scale) as i32),
+             1.max((window.attrs.dims.height as f64 / initial_scale) as i32),
+-        );
++        ));
++        let positioner = self.xdg_wm_base.create_positioner(&self.qh, ());
++        positioner.set_size(logical_size.0, logical_size.1);
+         let x = ((window.attrs.dims.x - parent_dims.x) as f64 / initial_scale) as i32;
+         let y = ((window.attrs.dims.y - parent_dims.y) as f64 / initial_scale) as i32;
+         positioner.set_offset(x, y);
+@@ -1633,8 +1749,16 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+         positioner.set_anchor_rect(
+             0,
+             0,
+-            (parent_window.attrs.dims.width as f64 / initial_scale) as i32,
+-            (parent_window.attrs.dims.height as f64 / initial_scale) as i32,
++            if native_size.is_some() {
++                (parent_window.attrs.dims.width as f64 / initial_scale).ceil() as i32
++            } else {
++                (parent_window.attrs.dims.width as f64 / initial_scale) as i32
++            },
++            if native_size.is_some() {
++                (parent_window.attrs.dims.height as f64 / initial_scale).ceil() as i32
++            } else {
++                (parent_window.attrs.dims.height as f64 / initial_scale) as i32
++            },
+         );
+         positioner
+             .set_constraint_adjustment(ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY);
+@@ -1648,6 +1772,7 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+         PopupData {
+             popup,
+             positioner,
++            native_size,
+             xdg: XdgSurfaceData {
+                 surface: xdg,
+                 configured: false,
+diff --git a/src/server/tests.rs b/src/server/tests.rs
+index fa70c7d..2412937 100644
+--- a/src/server/tests.rs
++++ b/src/server/tests.rs
+@@ -36,7 +36,10 @@ use wayland_protocols::{
+             zwp_locked_pointer_v1::ZwpLockedPointerV1,
+             zwp_pointer_constraints_v1::{self, ZwpPointerConstraintsV1},
+         },
+-        relative_pointer::zv1::client::zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
++        relative_pointer::zv1::client::{
++            zwp_relative_pointer_manager_v1::{self, ZwpRelativePointerManagerV1},
++            zwp_relative_pointer_v1::{self, ZwpRelativePointerV1},
++        },
+         tablet::zv2::client::{
+             zwp_tablet_manager_v2::{self, ZwpTabletManagerV2},
+             zwp_tablet_pad_group_v2::{
+@@ -114,6 +117,7 @@ struct Compositor {
+     seat: TestObject<WlSeat>,
+     tablet_man: TestObject<ZwpTabletManagerV2>,
+     pointer_constraints: TestObject<ZwpPointerConstraintsV1>,
++    relative_pointer_man: TestObject<ZwpRelativePointerManagerV1>,
+ } => CompositorOptional
+ 
+ }
+@@ -459,6 +463,9 @@ impl<C: XConnection> TestFixture<C> {
+                     x if x == XwaylandShellV1::interface().name => bind!(shell),
+                     x if x == WlSeat::interface().name => bind!(seat),
+                     x if x == ZwpTabletManagerV2::interface().name => bind!(tablet_man),
++                    x if x == ZwpRelativePointerManagerV1::interface().name => {
++                        bind!(relative_pointer_man)
++                    }
+                     x if x == ZwpPointerConstraintsV1::interface().name => {
+                         bind!(pointer_constraints)
+                     }
+@@ -3023,6 +3030,47 @@ fn scaled_pointer_lock_position_hint() {
+     );
+ }
+ 
++#[test]
++fn integer_output_pointer_lock_position_hint() {
++    let (mut f, comp) = TestFixture::new_with_compositor();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++
++    let (_, output) = f.new_output(0, 0);
++    output.scale(2);
++    output.done();
++    f.run();
++    f.run();
++    let win = Window::new(1);
++    let (surface, id) = f.create_toplevel(&comp, win);
++    f.testwl.move_surface_to_output(id, &output);
++    f.run();
++    f.run();
++
++    let locked_pointer = TestObject::<ZwpLockedPointerV1>::from_request(
++        &comp.pointer_constraints.obj,
++        zwp_pointer_constraints_v1::Request::LockPointer {
++            surface: surface.obj.clone(),
++            pointer: pointer.obj.clone(),
++            region: None,
++            lifetime: WEnum::Value(zwp_pointer_constraints_v1::Lifetime::Persistent),
++        },
++    );
++    locked_pointer.set_cursor_position_hint(100.0, 100.0);
++    f.run();
++    f.run();
++
++    let lock_data = f
++        .testwl
++        .locked_pointer()
++        .expect("Missing locked pointer data");
++    assert_eq!(lock_data.surface, id);
++    assert_eq!(
++        lock_data.cursor_hint,
++        Some(testwl::Vec2f { x: 50.0, y: 50.0 })
++    );
++}
++
+ #[test]
+ fn disconnected_output_rescaling() {
+     let mut f = TestFixture::new_pre_connect(|testwl| {
+@@ -3343,3 +3391,891 @@ fn decorations_max_height_int_max() {
+ /// See Pointer::handle_event for an explanation.
+ #[test]
+ fn popup_pointer_motion_workaround() {}
++
++fn assert_relative_motion<C: XConnection>(
++    f: &mut TestFixture<C>,
++    relative: &TestObject<ZwpRelativePointerV1>,
++    scale: f64,
++) {
++    f.testwl
++        .relative_pointer()
++        .relative_motion(17, 23, 3.5, -2.25, 7.25, -6.5);
++    // Host event -> satellite client dispatch -> XWayland client delivery.
++    for _ in 0..8 {
++        f.run();
++        if !relative.data.events.lock().unwrap().is_empty() {
++            break;
++        }
++    }
++    let events = std::mem::take(&mut *relative.data.events.lock().unwrap());
++    assert_eq!(events.len(), 1);
++    let zwp_relative_pointer_v1::Event::RelativeMotion {
++        utime_hi,
++        utime_lo,
++        dx,
++        dy,
++        dx_unaccel,
++        dy_unaccel,
++    } = events[0]
++    else {
++        panic!("Expected relative motion")
++    };
++    assert_eq!((utime_hi, utime_lo), (17, 23));
++    // Wayland wl_fixed transport quantizes fractional deltas to 1/256.
++    assert!((dx - 3.5 * scale).abs() < 1.0 / 256.0);
++    assert!((dy - -2.25 * scale).abs() < 1.0 / 256.0);
++    assert_eq!((dx_unaccel, dy_unaccel), (7.25, -6.5));
++}
++
++#[test]
++fn relative_motion_uses_current_surface_scale() {
++    let (mut f, comp) = TestFixture::new_with_compositor();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let relative = TestObject::<ZwpRelativePointerV1>::from_request(
++        &comp.relative_pointer_man.obj,
++        zwp_relative_pointer_manager_v1::Request::GetRelativePointer {
++            pointer: pointer.obj.clone(),
++        },
++    );
++    let win = Window::new(1);
++    let (_, id) = f.create_toplevel(&comp, win);
++    f.run();
++    f.testwl.move_pointer_to(id, 0.0, 0.0);
++    f.run();
++    let entity = f.satellite.windows[&win];
++    for scale in [1.0, 2.0, 1.5] {
++        // Change the focused surface after enter. A cached pointer-enter scale
++        // would be stale and would fail the 2x and 1.5x assertions below.
++        f.satellite
++            .world
++            .get::<&mut super::SurfaceScaleFactor>(entity)
++            .unwrap()
++            .0 = scale;
++        assert_relative_motion(&mut f, &relative, scale);
++    }
++}
++
++#[test]
++fn relative_motion_follows_pointer_focus_and_no_focus() {
++    let (mut f, comp) = TestFixture::new_with_compositor();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let relative = TestObject::<ZwpRelativePointerV1>::from_request(
++        &comp.relative_pointer_man.obj,
++        zwp_relative_pointer_manager_v1::Request::GetRelativePointer {
++            pointer: pointer.obj.clone(),
++        },
++    );
++    let mut windows = Vec::new();
++    for (number, scale) in [(1, 2.0), (2, 1.5)] {
++        let win = Window::new(number);
++        let (surface, id) = f.create_toplevel(&comp, win);
++        let entity = f.satellite.windows[&win];
++        f.satellite
++            .world
++            .get::<&mut super::SurfaceScaleFactor>(entity)
++            .unwrap()
++            .0 = scale;
++        windows.push((surface, id, scale));
++    }
++    f.run();
++    assert_relative_motion(&mut f, &relative, 1.0);
++    for (_, id, scale) in &windows {
++        f.testwl.move_pointer_to(*id, 0.0, 0.0);
++        f.run();
++        assert_relative_motion(&mut f, &relative, *scale);
++    }
++}
++
++fn fixed_render_fixture() -> (TestFixture<FakeXConnection>, Compositor) {
++    let (mut f, comp) = TestFixture::new_with_compositor();
++    // Inject policy before outputs/surfaces, avoiding process-global environment
++    // mutation while other fixtures run in parallel.
++    f.satellite.fixed_render_scale = Some(2);
++    f.satellite.current_scale = 2.0;
++    f.satellite.new_scale = Some(2.0);
++    (f, comp)
++}
++
++fn pump_fixed_render(f: &mut TestFixture<FakeXConnection>) {
++    for _ in 0..4 {
++        f.run();
++    }
++}
++
++fn assert_fixed_output_size(
++    output: &TestObject<WlOutput>,
++    xdg: &TestObject<ZxdgOutputV1>,
++    mode: (i32, i32),
++    logical: (i32, i32),
++) {
++    let events = output.data.events.lock().unwrap();
++    let modes: Vec<_> = events
++        .iter()
++        .filter_map(|event| match event {
++            wl_output::Event::Mode { width, height, .. } => Some((*width, *height)),
++            _ => None,
++        })
++        .collect();
++    assert!(!modes.is_empty(), "No virtual mode advertised");
++    assert!(
++        modes.iter().all(|size| *size == mode),
++        "Unexpected mode: {modes:?}"
++    );
++    let events = xdg.data.events.lock().unwrap();
++    let sizes: Vec<_> = events
++        .iter()
++        .filter_map(|event| match event {
++            zxdg_output_v1::Event::LogicalSize { width, height } => Some((*width, *height)),
++            _ => None,
++        })
++        .collect();
++    assert!(!sizes.is_empty(), "No virtual logical size advertised");
++    assert!(
++        sizes.iter().all(|size| *size == logical),
++        "Unexpected logical size: {sizes:?}"
++    );
++}
++
++#[test]
++fn fixed_render_scale_rejects_invalid_configuration() {
++    assert_eq!(super::parse_fixed_render_scale(None), Ok(None));
++    for value in ["1", "2", "3", "4"] {
++        assert_eq!(
++            super::parse_fixed_render_scale(Some(value)),
++            Ok(Some(value.parse().unwrap()))
++        );
++    }
++    for value in ["", "0", "-1", "1.5", "5", "NaN", "inf"] {
++        assert!(
++            super::parse_fixed_render_scale(Some(value)).is_err(),
++            "Accepted {value}"
++        );
++    }
++}
++
++#[test]
++fn fixed_render_geometry_handles_event_order_and_later_host_mode_changes() {
++    for logical_first in [false, true] {
++        let (mut f, _) = fixed_render_fixture();
++        let man = f.enable_xdg_output();
++        let (output, host_output) = f.new_output(0, 0);
++        let xdg = f.create_xdg_output(&man, output.obj.clone());
++        let host_xdg = f.testwl.get_xdg_output(&host_output).unwrap();
++        output.data.events.lock().unwrap().clear();
++        xdg.data.events.lock().unwrap().clear();
++        if logical_first {
++            host_xdg.logical_size(2648, 1490);
++            host_xdg.done();
++            pump_fixed_render(&mut f);
++        }
++        host_output.mode(s_proto::wl_output::Mode::Current, 3840, 2160, 144000);
++        host_output.scale(2);
++        host_output.done();
++        pump_fixed_render(&mut f);
++        if !logical_first {
++            assert!(
++                !output
++                    .data
++                    .events
++                    .lock()
++                    .unwrap()
++                    .iter()
++                    .any(|event| matches!(event, wl_output::Event::Mode { .. }))
++            );
++            host_xdg.logical_size(2648, 1490);
++            host_xdg.done();
++            pump_fixed_render(&mut f);
++        }
++        assert_fixed_output_size(&output, &xdg, (5296, 2980), (5296, 2980));
++        // A later physical-mode/host-integer-scale notification must not undo
++        // the authoritative virtual monitor rectangle.
++        host_output.mode(s_proto::wl_output::Mode::Current, 3840, 2160, 60000);
++        host_output.mode(s_proto::wl_output::Mode::Preferred, 1920, 1080, 60000);
++        host_output.scale(1);
++        host_output.done();
++        pump_fixed_render(&mut f);
++        assert_fixed_output_size(&output, &xdg, (5296, 2980), (5296, 2980));
++        assert_eq!(f.satellite.current_scale, 2.0);
++    }
++}
++
++#[test]
++fn fixed_render_geometry_preserves_rotated_logical_rectangle() {
++    let (mut f, _) = fixed_render_fixture();
++    let man = f.enable_xdg_output();
++    let (output, host_output) = f.new_output(0, 0);
++    let xdg = f.create_xdg_output(&man, output.obj.clone());
++    let host_xdg = f.testwl.get_xdg_output(&host_output).unwrap();
++    output.data.events.lock().unwrap().clear();
++    xdg.data.events.lock().unwrap().clear();
++    host_output.geometry(
++        0,
++        0,
++        620,
++        350,
++        s_proto::wl_output::Subpixel::None,
++        "test".into(),
++        "portrait".into(),
++        s_proto::wl_output::Transform::_90,
++    );
++    host_output.mode(s_proto::wl_output::Mode::Current, 3840, 2160, 144000);
++    host_xdg.logical_size(1490, 2648);
++    host_xdg.done();
++    host_output.done();
++    pump_fixed_render(&mut f);
++    assert_fixed_output_size(&output, &xdg, (5296, 2980), (2980, 5296));
++}
++
++#[test]
++fn fixed_render_mixed_dpi_outputs_share_render_scale_and_virtual_offsets() {
++    let (mut f, comp) = fixed_render_fixture();
++    let man = f.enable_xdg_output();
++    let (output1, host1) = f.new_output(0, 0);
++    let (output2, host2) = f.new_output(2648, 0);
++    let xdg1 = f.create_xdg_output(&man, output1.obj.clone());
++    let xdg2 = f.create_xdg_output(&man, output2.obj.clone());
++    let host_xdg1 = f.testwl.get_xdg_output(&host1).unwrap();
++    let host_xdg2 = f.testwl.get_xdg_output(&host2).unwrap();
++    for events in [&output1.data.events, &output2.data.events] {
++        events.lock().unwrap().clear();
++    }
++    for events in [&xdg1.data.events, &xdg2.data.events] {
++        events.lock().unwrap().clear();
++    }
++    host1.mode(s_proto::wl_output::Mode::Current, 3840, 2160, 144000);
++    host1.scale(2); // Host 145% rounds wl_output.scale to 2.
++    host_xdg1.logical_position(0, 0);
++    host_xdg1.logical_size(2648, 1490);
++    host2.mode(s_proto::wl_output::Mode::Current, 1920, 1080, 60000);
++    host2.scale(1); // Adjacent host 100% monitor.
++    host_xdg2.logical_position(2648, 0);
++    host_xdg2.logical_size(1920, 1080);
++    host1.done();
++    host2.done();
++    host_xdg1.done();
++    host_xdg2.done();
++    pump_fixed_render(&mut f);
++    assert_fixed_output_size(&output1, &xdg1, (5296, 2980), (5296, 2980));
++    assert_fixed_output_size(&output2, &xdg2, (3840, 2160), (3840, 2160));
++    assert_eq!(f.satellite.current_scale, 2.0);
++    assert_eq!(f.satellite.new_scale, Some(2.0));
++    for output in [&output1, &output2] {
++        assert!(
++            output
++                .data
++                .events
++                .lock()
++                .unwrap()
++                .iter()
++                .any(|event| matches!(event, wl_output::Event::Scale { factor: 2 }))
++        );
++        assert!(
++            !output
++                .data
++                .events
++                .lock()
++                .unwrap()
++                .iter()
++                .any(|event| matches!(event, wl_output::Event::Scale { factor: 1 }))
++        );
++    }
++    assert!(
++        xdg2.data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .any(|event| matches!(
++                event,
++                zxdg_output_v1::Event::LogicalPosition { x: 5296, y: 0 }
++            ))
++    );
++    let win = Window::new(1);
++    let (_, id) = f.create_toplevel(&comp, win);
++    for host in [&host1, &host2] {
++        f.testwl.move_surface_to_output(id, host);
++        pump_fixed_render(&mut f);
++        let surface = f.satellite.windows[&win];
++        assert_eq!(
++            f.satellite
++                .world
++                .get::<&super::SurfaceScaleFactor>(surface)
++                .unwrap()
++                .0,
++            2.0
++        );
++    }
++    assert_eq!(f.connection().windows[&win].dims.x, 5296);
++}
++
++#[test]
++fn fixed_render_geometry_normalizes_negative_virtual_origins() {
++    let (mut f, _) = fixed_render_fixture();
++    let man = f.enable_xdg_output();
++    let (output1, host1) = f.new_output(-2648, -100);
++    let (output2, host2) = f.new_output(0, 0);
++    let xdg1 = f.create_xdg_output(&man, output1.obj.clone());
++    let xdg2 = f.create_xdg_output(&man, output2.obj.clone());
++    f.testwl.move_xdg_output(&host1, -2648, -100);
++    f.testwl.move_xdg_output(&host2, 0, 0);
++    pump_fixed_render(&mut f);
++    assert!(
++        xdg1.data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .any(|event| matches!(event, zxdg_output_v1::Event::LogicalPosition { x: 0, y: 0 }))
++    );
++    assert!(
++        xdg2.data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .any(|event| matches!(
++                event,
++                zxdg_output_v1::Event::LogicalPosition { x: 5296, y: 200 }
++            ))
++    );
++    // wl_output geometry arriving later may not override the xdg source.
++    f.testwl.move_output(&host1, -2000, -50);
++    f.testwl.move_output(&host2, 800, 20);
++    pump_fixed_render(&mut f);
++    let last_geometry = |output: &TestObject<WlOutput>| {
++        output
++            .data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .rev()
++            .find_map(|event| match event {
++                wl_output::Event::Geometry { x, y, .. } => Some((*x, *y)),
++                _ => None,
++            })
++    };
++    assert_eq!(last_geometry(&output1), Some((0, 0)));
++    assert_eq!(last_geometry(&output2), Some((5296, 200)));
++}
++
++fn cursor_buffer(comp: &Compositor, width: i32, height: i32) -> TestObject<WlBuffer> {
++    let fd = unsafe { BorrowedFd::borrow_raw(0) };
++    let pool = TestObject::<WlShmPool>::from_request(
++        &comp.shm.obj,
++        Req::<WlShm>::CreatePool {
++            fd,
++            size: width * height * 4,
++        },
++    );
++    TestObject::<WlBuffer>::from_request(
++        &pool.obj,
++        Req::<WlShmPool>::CreateBuffer {
++            offset: 0,
++            width,
++            height,
++            stride: width * 4,
++            format: WEnum::Value(Format::Argb8888),
++        },
++    )
++}
++
++fn cursor_surface(comp: &Compositor) -> TestObject<WlSurface> {
++    TestObject::from_request(&comp.compositor.obj, Req::<WlCompositor>::CreateSurface {})
++}
++
++#[test]
++fn fixed_render_cursor_maps_image_hotspot_and_resize() {
++    let (mut f, comp) = fixed_render_fixture();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let surface = cursor_surface(&comp);
++    let first = cursor_buffer(&comp, 72, 72);
++    pointer.set_cursor(24, Some(&surface.obj), 24, 12);
++    surface.attach(Some(&first.obj), 0, 0);
++    surface.set_buffer_scale(1);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let cursor = f.testwl.pointer_cursor().unwrap();
++    assert_eq!(cursor.hotspot, testwl::Vec2 { x: 12, y: 6 });
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert_eq!(data.buffer_scale, 1);
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (36, 36)
++    );
++    let replacement = cursor_buffer(&comp, 95, 73);
++    surface.attach(Some(&replacement.obj), 0, 0);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (48, 37)
++    );
++    assert_eq!(
++        f.testwl.pointer_cursor().unwrap().hotspot,
++        testwl::Vec2 { x: 12, y: 6 }
++    );
++    pointer.set_cursor(24, None, 0, 0);
++    pump_fixed_render(&mut f);
++    assert!(f.testwl.pointer_cursor().is_none());
++    surface.destroy();
++    pump_fixed_render(&mut f);
++    assert!(f.testwl.get_surface_data(cursor.surface).is_none());
++    assert_eq!(
++        f.satellite
++            .world
++            .query::<&super::CursorSurface>()
++            .iter()
++            .count(),
++        0
++    );
++}
++
++#[test]
++fn fixed_render_cursor_preserves_existing_buffer_scale_and_late_updates() {
++    let (mut f, comp) = fixed_render_fixture();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let surface = cursor_surface(&comp);
++    let buffer = cursor_buffer(&comp, 72, 72);
++    // A future XWayland may supply scale=2 and already divide its hotspot.
++    // Even when the scale request follows set_cursor, the result is 12, not 6.
++    pointer.set_cursor(24, Some(&surface.obj), 12, 6);
++    surface.attach(Some(&buffer.obj), 0, 0);
++    surface.set_buffer_scale(2);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let cursor = f.testwl.pointer_cursor().unwrap();
++    assert_eq!(cursor.hotspot, testwl::Vec2 { x: 12, y: 6 });
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert_eq!(data.buffer_scale, 2);
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (36, 36)
++    );
++    // The subsequent change must refresh active cursor coordinates as well.
++    surface.set_buffer_scale(1);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    assert_eq!(
++        f.testwl.pointer_cursor().unwrap().hotspot,
++        testwl::Vec2 { x: 6, y: 3 }
++    );
++    surface.attach(None, 0, 0);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert!(data.buffer.is_none());
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (-1, -1)
++    );
++}
++
++#[test]
++fn default_cursor_image_and_hotspot_are_not_transformed() {
++    let (mut f, comp) = TestFixture::new_with_compositor();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let surface = cursor_surface(&comp);
++    let buffer = cursor_buffer(&comp, 72, 72);
++    pointer.set_cursor(24, Some(&surface.obj), 24, 12);
++    surface.attach(Some(&buffer.obj), 0, 0);
++    surface.set_buffer_scale(1);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let cursor = f.testwl.pointer_cursor().unwrap();
++    assert_eq!(cursor.hotspot, testwl::Vec2 { x: 24, y: 12 });
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (-1, -1)
++    );
++    assert_eq!(
++        f.satellite
++            .world
++            .query::<&super::CursorSurface>()
++            .iter()
++            .count(),
++        0
++    );
++}
++
++#[test]
++fn fixed_render_tablet_cursor_uses_same_geometry_and_hotspot_policy() {
++    let (mut f, comp) = fixed_render_fixture();
++    let seat = TestObject::<ZwpTabletSeatV2>::from_request(
++        &comp.tablet_man.obj,
++        zwp_tablet_manager_v2::Request::GetTabletSeat {
++            seat: comp.seat.obj.clone(),
++        },
++    );
++    pump_fixed_render(&mut f);
++    let tool = seat
++        .data
++        .events
++        .lock()
++        .unwrap()
++        .iter()
++        .find_map(|event| match event {
++            zwp_tablet_seat_v2::Event::ToolAdded { id } => Some(id.clone()),
++            _ => None,
++        })
++        .expect("Missing tablet tool");
++    let surface = cursor_surface(&comp);
++    let buffer = cursor_buffer(&comp, 72, 72);
++    tool.set_cursor(24, Some(&surface.obj), 24, 12);
++    surface.attach(Some(&buffer.obj), 0, 0);
++    surface.set_buffer_scale(1);
++    surface.commit();
++    pump_fixed_render(&mut f);
++    let cursor = f.testwl.tablet_cursor().unwrap();
++    assert_eq!(cursor.hotspot, testwl::Vec2 { x: 12, y: 6 });
++    let data = f.testwl.get_surface_data(cursor.surface).unwrap();
++    assert_eq!(
++        (
++            data.viewport.as_ref().unwrap().width,
++            data.viewport.as_ref().unwrap().height
++        ),
++        (36, 36)
++    );
++    tool.set_cursor(24, None, 0, 0);
++    pump_fixed_render(&mut f);
++    assert!(f.testwl.tablet_cursor().is_none());
++}
++
++#[test]
++fn fixed_render_superseded_cursor_updates_do_not_replace_active_cursor() {
++    let (mut f, comp) = fixed_render_fixture();
++    let pointer =
++        TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++    let old_surface = cursor_surface(&comp);
++    let old_buffer = cursor_buffer(&comp, 72, 72);
++    pointer.set_cursor(24, Some(&old_surface.obj), 24, 12);
++    old_surface.attach(Some(&old_buffer.obj), 0, 0);
++    old_surface.commit();
++    pump_fixed_render(&mut f);
++    let old_id = f.testwl.pointer_cursor().unwrap().surface;
++    let new_surface = cursor_surface(&comp);
++    let new_buffer = cursor_buffer(&comp, 96, 96);
++    pointer.set_cursor(24, Some(&new_surface.obj), 32, 16);
++    new_surface.attach(Some(&new_buffer.obj), 0, 0);
++    new_surface.commit();
++    pump_fixed_render(&mut f);
++    let active = f.testwl.pointer_cursor().unwrap();
++    assert_ne!(active.surface, old_id);
++    assert_eq!(active.hotspot, testwl::Vec2 { x: 16, y: 8 });
++    old_surface.set_buffer_scale(2);
++    old_surface.commit();
++    pump_fixed_render(&mut f);
++    assert_eq!(f.testwl.pointer_cursor(), Some(active));
++    old_surface.destroy();
++    pump_fixed_render(&mut f);
++    assert_eq!(f.testwl.pointer_cursor(), Some(active));
++}
++
++#[test]
++fn ui_multiplier_rejects_invalid_configuration() {
++    assert_eq!(super::parse_ui_multiplier(None, None), Ok(1.0));
++    for value in ["1", "1.0344827586206897", "1.103448275862069"] {
++        assert!(super::parse_ui_multiplier(Some(value), Some(2)).is_ok());
++    }
++    for value in ["", "0", "-1", "NaN", "inf", "-inf", "1e-320"] {
++        assert!(
++            super::parse_ui_multiplier(Some(value), Some(2)).is_err(),
++            "Accepted {value}"
++        );
++    }
++    assert!(super::parse_ui_multiplier(Some("1.1"), None).is_err());
++}
++
++#[test]
++fn ui_multiplier_scales_windows_and_mixed_outputs_but_preserves_density_and_cursor() {
++    for target_percent in [145.0, 150.0, 160.0] {
++        let (mut f, comp) = fixed_render_fixture();
++        f.satellite.ui_multiplier = target_percent / 145.0;
++        let mapping = 2.0 / f.satellite.ui_multiplier;
++        f.satellite.current_scale = mapping;
++        f.satellite.new_scale = Some(mapping);
++        let man = f.enable_xdg_output();
++        let (output1, host1) = f.new_output(0, 0);
++        let (output2, host2) = f.new_output(2648, 0);
++        let xdg1 = f.create_xdg_output(&man, output1.obj.clone());
++        let xdg2 = f.create_xdg_output(&man, output2.obj.clone());
++        for events in [&output1.data.events, &output2.data.events] {
++            events.lock().unwrap().clear();
++        }
++        for events in [&xdg1.data.events, &xdg2.data.events] {
++            events.lock().unwrap().clear();
++        }
++        host1.mode(s_proto::wl_output::Mode::Current, 3840, 2160, 144000);
++        host1.scale(2);
++        let host_xdg1 = f.testwl.get_xdg_output(&host1).unwrap();
++        host_xdg1.logical_size(2648, 1490);
++        host_xdg1.logical_position(0, 0);
++        host2.mode(s_proto::wl_output::Mode::Current, 1920, 1080, 60000);
++        host2.scale(1);
++        let host_xdg2 = f.testwl.get_xdg_output(&host2).unwrap();
++        host_xdg2.logical_size(1920, 1080);
++        host_xdg2.logical_position(2648, 0);
++        host1.done();
++        host2.done();
++        host_xdg1.done();
++        host_xdg2.done();
++        pump_fixed_render(&mut f);
++        let first_size = (
++            (2648.0 * mapping).round() as i32,
++            (1490.0 * mapping).round() as i32,
++        );
++        let second_size = (
++            ((2648.0 + 1920.0) * mapping).round() as i32 - (2648.0 * mapping).round() as i32,
++            (1080.0 * mapping).round() as i32,
++        );
++        assert_fixed_output_size(&output1, &xdg1, first_size, first_size);
++        assert_fixed_output_size(&output2, &xdg2, second_size, second_size);
++        assert_eq!(f.satellite.current_scale, mapping);
++        assert_eq!(
++            f.satellite.new_global_scale(),
++            Some(2.0),
++            "Xsettings must retain integer rendering density"
++        );
++        assert!(
++            xdg2.data
++                .events
++                .lock()
++                .unwrap()
++                .iter()
++                .any(|event| matches!(event,
++            zxdg_output_v1::Event::LogicalPosition { x, y: 0 } if *x == first_size.0))
++        );
++        for output in [&output1, &output2] {
++            assert!(
++                output
++                    .data
++                    .events
++                    .lock()
++                    .unwrap()
++                    .iter()
++                    .all(|event| !matches!(event,
++                wl_output::Event::Scale { factor } if *factor != 2))
++            );
++        }
++        let pointer =
++            TestObject::<WlPointer>::from_request(&comp.seat.obj, wl_seat::Request::GetPointer {});
++        let relative = TestObject::<ZwpRelativePointerV1>::from_request(
++            &comp.relative_pointer_man.obj,
++            zwp_relative_pointer_manager_v1::Request::GetRelativePointer {
++                pointer: pointer.obj.clone(),
++            },
++        );
++        let win = Window::new(1);
++        let (_, id) = f.create_toplevel(&comp, win);
++        f.testwl.move_surface_to_output(id, &host1);
++        f.testwl.move_pointer_to(id, 10.0, 20.0);
++        pump_fixed_render(&mut f);
++        assert_eq!(
++            f.satellite
++                .world
++                .get::<&super::SurfaceScaleFactor>(f.satellite.windows[&win])
++                .unwrap()
++                .0,
++            mapping
++        );
++        let width = f.connection().window(win).dims.width;
++        assert_eq!(width, (100.0 * mapping) as u16);
++        let data = f.testwl.get_surface_data(id).unwrap();
++        let viewport = data.viewport.as_ref().unwrap();
++        assert_eq!(viewport.width, 100);
++        let events = pointer.data.events.lock().unwrap();
++        let (x, y) = events
++            .iter()
++            .find_map(|event| match event {
++                wayland_client::protocol::wl_pointer::Event::Enter {
++                    surface_x,
++                    surface_y,
++                    ..
++                } => Some((*surface_x, *surface_y)),
++                _ => None,
++            })
++            .expect("Pointer enter not delivered");
++        assert!((x - 10.0 * mapping).abs() < 1.0 / 128.0);
++        assert!((y - 20.0 * mapping).abs() < 1.0 / 128.0);
++        drop(events);
++        assert_relative_motion(&mut f, &relative, mapping);
++        // A 100-point Unity element renders B*100 X pixels and appears at
++        // the requested physical percentage, independent of its window mapping.
++        assert!((200.0 / mapping * 1.45 - target_percent).abs() < 1e-9);
++        let cursor = cursor_surface(&comp);
++        let buffer = cursor_buffer(&comp, 72, 72);
++        pointer.set_cursor(24, Some(&cursor.obj), 24, 12);
++        cursor.attach(Some(&buffer.obj), 0, 0);
++        cursor.commit();
++        pump_fixed_render(&mut f);
++        let current = f.testwl.pointer_cursor().unwrap();
++        assert_eq!(current.hotspot, testwl::Vec2 { x: 12, y: 6 });
++        let data = f.testwl.get_surface_data(current.surface).unwrap();
++        assert_eq!(
++            data.viewport.as_ref().unwrap().width,
++            36,
++            "Cursor must follow desktop size, not app UI multiplier"
++        );
++    }
++}
++
++#[test]
++fn ui_multiplier_rounds_shared_output_edges_and_position_only_updates() {
++    let (mut f, _) = fixed_render_fixture();
++    f.satellite.ui_multiplier = 150.0 / 145.0;
++    let mapping = 2.0 / f.satellite.ui_multiplier;
++    f.satellite.current_scale = mapping;
++    let man = f.enable_xdg_output();
++    let mut outputs = Vec::new();
++    for origin in [-1000, 0, 1000, 2000] {
++        let (output, host) = f.new_output(origin, 0);
++        let xdg = f.create_xdg_output(&man, output.obj.clone());
++        let host_xdg = f.testwl.get_xdg_output(&host).unwrap();
++        host_xdg.logical_position(origin, 0);
++        host_xdg.logical_size(1000, 800);
++        host.mode(s_proto::wl_output::Mode::Current, 1450, 1160, 60000);
++        host.done();
++        host_xdg.done();
++        pump_fixed_render(&mut f);
++        outputs.push((output, xdg, host_xdg));
++    }
++    let latest_mode = |output: &TestObject<WlOutput>| {
++        output
++            .data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .rev()
++            .find_map(|event| match event {
++                wl_output::Event::Mode { width, height, .. } => Some((*width, *height)),
++                _ => None,
++            })
++            .unwrap()
++    };
++    let latest_position = |xdg: &TestObject<ZxdgOutputV1>| {
++        xdg.data
++            .events
++            .lock()
++            .unwrap()
++            .iter()
++            .rev()
++            .find_map(|event| match event {
++                zxdg_output_v1::Event::LogicalPosition { x, y } => Some((*x, *y)),
++                _ => None,
++            })
++            .unwrap()
++    };
++    for pair in outputs.windows(2) {
++        let left = latest_position(&pair[0].1).0;
++        let width = latest_mode(&pair[0].0).0;
++        let right = latest_position(&pair[1].1).0;
++        assert_eq!(
++            left + width,
++            right,
++            "Shared virtual monitor edge must be exact"
++        );
++    }
++    assert_eq!(latest_mode(&outputs[2].0).0, 1934);
++    // Moving an output without changing its size changes the rounding phase.
++    outputs[2].2.logical_position(2000, 0);
++    outputs[2].2.done();
++    pump_fixed_render(&mut f);
++    assert_eq!(latest_mode(&outputs[2].0).0, 1933);
++}
++
++#[test]
++fn ui_multiplier_native_popup_sizes_survive_roundtrip_and_reposition_without_growth() {
++    for target_percent in [145.0, 150.0, 160.0] {
++        let (mut f, comp) = fixed_render_fixture();
++        f.satellite.ui_multiplier = target_percent / 145.0;
++        let mapping = 2.0 / f.satellite.ui_multiplier;
++        f.satellite.current_scale = mapping;
++        let toplevel = Window::new(1);
++        let (_, t_id) = f.create_toplevel(&comp, toplevel);
++        let popup = Window::new(2);
++        let (_, p_id) = f.create_popup(
++            &comp,
++            PopupBuilder::new(popup, toplevel, t_id)
++                .width(124)
++                .height(88)
++                .scale(mapping)
++                .check_size_and_pos(false),
++        );
++        let check_size = |f: &TestFixture<FakeXConnection>, width: u16, height: u16| {
++            let dims = f.connection().window(popup).dims;
++            assert_eq!(
++                (dims.width, dims.height),
++                (width, height),
++                "Native popup allocation shrank or grew at target{target_percent}"
++            );
++            let data = f.testwl.get_surface_data(p_id).unwrap();
++            let logical = testwl::Vec2 {
++                x: (f64::from(width) / mapping).ceil() as i32,
++                y: (f64::from(height) / mapping).ceil() as i32,
++            };
++            assert_eq!(data.popup().positioner_state.size, Some(logical));
++            let viewport = data.viewport.as_ref().unwrap();
++            assert_eq!(
++                (viewport.width, viewport.height),
++                (logical.x, logical.y),
++                "Popup positioner and allocated viewport must agree"
++            );
++        };
++        check_size(&f, 124, 88);
++        // Include tiny allocations, the two-row GTK menu range, odd sizes and
++        // fractions that previously lost one native X pixel on each roundtrip.
++        for width in [1, 97, 124, 255] {
++            for height in [1, 2, 3, 63, 64, 84, 88, 97, 99, 101, 124, 125] {
++                let current = f.connection().window(popup).dims;
++                f.reconfigure_window(
++                    popup,
++                    WindowDims {
++                        width,
++                        height,
++                        ..current
++                    },
++                    true,
++                );
++                pump_fixed_render(&mut f);
++                check_size(&f, width, height);
++                for _ in 0..3 {
++                    f.testwl.configure_popup(p_id);
++                    pump_fixed_render(&mut f);
++                    check_size(&f, width, height);
++                }
++            }
++        }
++        // A compositor that genuinely chooses a different logical size must
++        // still constrain the popup rather than being overridden by its request.
++        f.testwl.configure_popup_size(p_id, 40, 30);
++        pump_fixed_render(&mut f);
++        let dims = f.connection().window(popup).dims;
++        assert_eq!(
++            (dims.width, dims.height),
++            ((40.0 * mapping) as u16, (30.0 * mapping) as u16)
++        );
++    }
++}
+diff --git a/src/xstate/mod.rs b/src/xstate/mod.rs
+index 6f08eb9..82d3cbf 100644
+--- a/src/xstate/mod.rs
++++ b/src/xstate/mod.rs
+@@ -102,6 +102,35 @@ impl WmName {
+     }
+ }
+ 
++#[derive(Default, Debug)]
++struct EwmhClients {
++    map_order: Vec<x::Window>,
++}
++
++impl EwmhClients {
++    fn mapped(&mut self, window: x::Window, managed: bool) {
++        if !managed {
++            self.withdrawn(window);
++        } else if !self.map_order.contains(&window) {
++            self.map_order.push(window);
++        }
++    }
++
++    fn withdrawn(&mut self, window: x::Window) {
++        self.map_order.retain(|candidate| *candidate != window);
++    }
++
++    fn stacking(&self, root_children: &[x::Window]) -> Vec<x::Window> {
++        // QueryTree returns immediate children from bottom to top. Restrict it
++        // to managed clients, excluding override-redirect and helper windows.
++        root_children
++            .iter()
++            .copied()
++            .filter(|window| self.map_order.contains(window))
++            .collect()
++    }
++}
++
+ pub struct XState {
+     connection: Rc<xcb::Connection>,
+     atoms: Atoms,
+@@ -111,6 +140,10 @@ pub struct XState {
+     selection_state: SelectionState,
+     settings: Settings,
+     max_req_bytes: usize,
++    ewmh_clients: EwmhClients,
++    client_lists_dirty: bool,
++    published_clients: Vec<x::Window>,
++    published_stacking: Vec<x::Window>,
+ }
+ 
+ impl XState {
+@@ -202,6 +235,11 @@ impl XState {
+                     | SelectionEventMask::SELECTION_CLIENT_CLOSE,
+             })
+             .unwrap();
++        // Publish Xcursor resources before libxcb-cursor caches its theme.
++        // Unlike libXcursor, libxcb-cursor reads the theme from RESOURCE_MANAGER
++        // rather than XCURSOR_THEME. Loading first would retain the default theme
++        // even when the fixed-render policy requests another cursor theme.
++        let settings = Settings::new(&connection, &atoms, root);
+         {
+             // Setup default cursor theme
+             let ctx = CursorContext::new(&connection, screen).unwrap();
+@@ -217,7 +255,6 @@ impl XState {
+         let wm_window = connection.generate_id();
+         let selection_state = SelectionState::new(&connection, root, &atoms);
+         let window_atoms = WindowTypes::intern_all(&connection).unwrap();
+-        let settings = Settings::new(&connection, &atoms, root);
+         // maximum-request-length is returned in units of 4 bytes.
+         // Additionally, requests use 32 bytes of metadata which cannot store arbitrary data
+         let max_req_bytes = (connection.get_maximum_request_length() * 4 - 32) as usize;
+@@ -231,6 +268,10 @@ impl XState {
+             selection_state,
+             settings,
+             max_req_bytes,
++            ewmh_clients: EwmhClients::default(),
++            client_lists_dirty: false,
++            published_clients: Vec::new(),
++            published_stacking: Vec::new(),
+         };
+         r.create_ewmh_window();
+         r.set_xsettings_owner();
+@@ -285,11 +326,21 @@ impl XState {
+ 
+         self.set_root_property(self.atoms.wm_check, x::ATOM_WINDOW, &[self.wm_window]);
+         self.set_root_property(self.atoms.active_win, x::ATOM_WINDOW, &[x::Window::none()]);
++        self.set_root_property(self.atoms.client_list, x::ATOM_WINDOW, &[] as &[x::Window]);
++        self.set_root_property(
++            self.atoms.client_list_stacking,
++            x::ATOM_WINDOW,
++            &[] as &[x::Window],
++        );
+         self.set_root_property(
+             self.atoms.supported,
+             x::ATOM_ATOM,
+             &[
+                 self.atoms.active_win,
++                self.atoms.wm_check,
++                self.atoms.net_wm_name,
++                self.atoms.client_list,
++                self.atoms.client_list_stacking,
+                 self.atoms.motif_wm_hints,
+                 self.atoms.net_wm_state,
+                 self.atoms.wm_fullscreen,
+@@ -312,7 +363,7 @@ impl XState {
+                 mode: x::PropMode::Replace,
+                 window: self.wm_window,
+                 property: self.atoms.net_wm_name,
+-                r#type: x::ATOM_STRING,
++                r#type: self.atoms.utf8_string,
+                 data: b"xwayland-satellite",
+             })
+             .unwrap();
+@@ -334,6 +385,37 @@ impl XState {
+             .unwrap();
+     }
+ 
++    fn refresh_client_lists(&mut self) {
++        if !self.client_lists_dirty {
++            return;
++        }
++        let reply = match self.connection.wait_for_reply(
++            self.connection
++                .send_request(&x::QueryTree { window: self.root }),
++        ) {
++            Ok(reply) => reply,
++            Err(error) => {
++                warn!("Could not refresh EWMH client stacking: {error:?}");
++                return;
++            }
++        };
++        let stacking = self.ewmh_clients.stacking(reply.children());
++        if self.published_clients != self.ewmh_clients.map_order {
++            self.set_root_property(
++                self.atoms.client_list,
++                x::ATOM_WINDOW,
++                &self.ewmh_clients.map_order,
++            );
++            self.published_clients
++                .clone_from(&self.ewmh_clients.map_order);
++        }
++        if self.published_stacking != stacking {
++            self.set_root_property(self.atoms.client_list_stacking, x::ATOM_WINDOW, &stacking);
++            self.published_stacking = stacking;
++        }
++        self.client_lists_dirty = false;
++    }
++
+     pub fn handle_events(&mut self, server_state: &mut super::RealServerState) {
+         macro_rules! unwrap_or_skip_bad_window_cont {
+             ($err:expr) => {
+@@ -388,6 +470,8 @@ impl XState {
+                     } else {
+                         debug!("destroying window since its parent is no longer root!");
+                         server_state.destroy_window(e.window());
++                        self.ewmh_clients.withdrawn(e.window());
++                        self.client_lists_dirty = true;
+                         ignored_windows.push(e.window());
+                     }
+                 }
+@@ -405,6 +489,17 @@ impl XState {
+                     );
+                 }
+                 xcb::Event::X(x::Event::MapNotify(e)) => {
++                    let attrs = unwrap_or_skip_bad_window_cont!(
++                        self.connection.wait_for_reply(
++                            self.connection
++                                .send_request(&x::GetWindowAttributes { window: e.window() })
++                        )
++                    );
++                    self.ewmh_clients.mapped(
++                        e.window(),
++                        !attrs.override_redirect() && attrs.class() == x::WindowClass::InputOutput,
++                    );
++                    self.client_lists_dirty = true;
+                     unwrap_or_skip_bad_window_cont!(self.connection.send_and_check_request(
+                         &x::ChangeWindowAttributes {
+                             window: e.window(),
+@@ -426,9 +521,12 @@ impl XState {
+                     ));
+                 }
+                 xcb::Event::X(x::Event::ConfigureNotify(e)) => {
++                    self.client_lists_dirty = true;
+                     server_state.reconfigure_window(e);
+                 }
+                 xcb::Event::X(x::Event::UnmapNotify(e)) => {
++                    self.ewmh_clients.withdrawn(e.window());
++                    self.client_lists_dirty = true;
+                     trace!("unmap event: {:?}", e.event());
+                     server_state.unmap_window(e.window());
+                     let active_win = self
+@@ -465,6 +563,8 @@ impl XState {
+                     ));
+                 }
+                 xcb::Event::X(x::Event::DestroyNotify(e)) => {
++                    self.ewmh_clients.withdrawn(e.window());
++                    self.client_lists_dirty = true;
+                     debug!("destroying window {:?}", e.window());
+                     server_state.destroy_window(e.window());
+                 }
+@@ -494,6 +594,12 @@ impl XState {
+                     if mask.contains(x::ConfigWindowMask::HEIGHT) {
+                         list.push(x::ConfigWindow::Height(e.height().into()));
+                     }
++                    if mask.contains(x::ConfigWindowMask::SIBLING) {
++                        list.push(x::ConfigWindow::Sibling(e.sibling()));
++                    }
++                    if mask.contains(x::ConfigWindowMask::STACK_MODE) {
++                        list.push(x::ConfigWindow::StackMode(e.stack_mode()));
++                    }
+ 
+                     unwrap_or_skip_bad_window_cont!(self.connection.send_and_check_request(
+                         &x::ConfigureWindow {
+@@ -518,6 +624,7 @@ impl XState {
+ 
+             server_state.run();
+         }
++        self.refresh_client_lists();
+     }
+ 
+     fn handle_client_message(
+@@ -907,6 +1014,7 @@ xcb::atoms_struct! {
+         wm_fullscreen => b"_NET_WM_STATE_FULLSCREEN" only_if_exists = false,
+         active_win => b"_NET_ACTIVE_WINDOW" only_if_exists = false,
+         client_list => b"_NET_CLIENT_LIST" only_if_exists = false,
++        client_list_stacking => b"_NET_CLIENT_LIST_STACKING" only_if_exists = false,
+         supported => b"_NET_SUPPORTED" only_if_exists = false,
+         motif_wm_hints => b"_MOTIF_WM_HINTS" only_if_exists = false,
+         utf8_string => b"UTF8_STRING" only_if_exists = false,
+diff --git a/src/xstate/settings.rs b/src/xstate/settings.rs
+index afdafbd..b37e921 100644
+--- a/src/xstate/settings.rs
++++ b/src/xstate/settings.rs
+@@ -39,6 +39,9 @@ impl XState {
+             })
+             .unwrap();
+         self.update_xft_dpi_resource(self.settings.xft_dpi());
++        if let Some(cursor) = &self.settings.cursor {
++            publish_cursor_resources(&self.connection, &self.atoms, self.root, cursor);
++        }
+     }
+ }
+ 
+@@ -51,21 +54,163 @@ const DPI_SCALE_FACTOR: i32 = 1024;
+ const XFT_DPI: &str = "Xft/DPI";
+ const GDK_WINDOW_SCALE: &str = "Gdk/WindowScalingFactor";
+ const GDK_UNSCALED_DPI: &str = "Gdk/UnscaledDPI";
++const GTK_CURSOR_THEME: &str = "Gtk/CursorThemeName";
++const GTK_CURSOR_SIZE: &str = "Gtk/CursorThemeSize";
+ 
+ pub(super) struct Settings {
+     window: x::Window,
+     serial: u32,
+-    settings: HashMap<&'static str, IntSetting>,
++    settings: HashMap<&'static str, Setting>,
++    cursor: Option<CursorSettings>,
++}
++
++#[derive(Clone, Debug, PartialEq)]
++enum SettingValue {
++    Integer(i32),
++    String(String),
+ }
+ 
+-#[derive(Copy, Clone)]
+-struct IntSetting {
+-    value: i32,
++struct Setting {
++    value: SettingValue,
+     last_change_serial: u32,
+ }
+ 
+ mod setting_type {
+     pub const INTEGER: u8 = 0;
++    pub const STRING: u8 = 1;
++}
++
++#[derive(Clone, Debug, PartialEq)]
++struct CursorSettings {
++    theme: Option<String>,
++    size: Option<i32>,
++}
++
++impl CursorSettings {
++    fn from_values(
++        render_scale: Option<&str>,
++        theme: Option<&str>,
++        size: Option<&str>,
++    ) -> Result<Option<Self>, &'static str> {
++        let Some(render_scale) = render_scale else {
++            // Cursor advertisement is opt-in with the fixed-render policy.
++            return Ok(None);
++        };
++        if !render_scale
++            .parse::<i32>()
++            .is_ok_and(|r| (1..=4).contains(&r))
++        {
++            return Err("UNITY_SATELLITE_RENDER_SCALE must be an integer from 1 to 4");
++        }
++        let theme = theme
++            .map(|name| {
++                if name.is_empty() || name.chars().any(char::is_control) {
++                    Err("XCURSOR_THEME must be a nonempty name without control characters")
++                } else {
++                    Ok(name.to_owned())
++                }
++            })
++            .transpose()?;
++        let size = size
++            .map(|value| {
++                value
++                    .parse::<i32>()
++                    .ok()
++                    // GTK3 clamps Gtk/CursorThemeSize above 128, which would
++                    // otherwise diverge from native Xlib's cursor size.
++                    .filter(|size| (1..=128).contains(size))
++                    .ok_or("XCURSOR_SIZE must be 1 to 128 X11 pixels for uniform GTK3 cursors")
++            })
++            .transpose()?;
++        Ok((theme.is_some() || size.is_some()).then_some(Self { theme, size }))
++    }
++
++    fn from_environment() -> Option<Self> {
++        let render_scale = std::env::var("UNITY_SATELLITE_RENDER_SCALE").ok();
++        let theme = std::env::var("XCURSOR_THEME").ok();
++        let size = std::env::var("XCURSOR_SIZE").ok();
++        Self::from_values(render_scale.as_deref(), theme.as_deref(), size.as_deref())
++            .unwrap_or_else(|message| panic!("{message}"))
++    }
++}
++
++fn merge_cursor_resources(resources: &[u8], cursor: &CursorSettings) -> Vec<u8> {
++    let mut replacements: Vec<(&[u8], String)> = Vec::new();
++    if let Some(theme) = &cursor.theme {
++        // A resource value may contain escaped backslashes but never a new line.
++        replacements.push((b"Xcursor.theme", theme.replace('\\', "\\\\")));
++    }
++    if let Some(size) = cursor.size {
++        replacements.push((b"Xcursor.size", size.to_string()));
++    }
++    let mut seen = vec![false; replacements.len()];
++    let mut updated = Vec::with_capacity(resources.len() + 96);
++    for line in resources.split_inclusive(|byte| *byte == b'\n') {
++        let name = line
++            .iter()
++            .position(|byte| *byte == b':')
++            .map(|separator| line[..separator].trim_ascii());
++        if let Some(index) = replacements.iter().position(|(key, _)| Some(*key) == name) {
++            if !seen[index] {
++                updated.extend_from_slice(replacements[index].0);
++                updated.extend_from_slice(b":\t");
++                updated.extend_from_slice(replacements[index].1.as_bytes());
++                updated.push(b'\n');
++                seen[index] = true;
++            }
++        } else {
++            updated.extend_from_slice(line);
++        }
++    }
++    for (index, (name, value)) in replacements.iter().enumerate() {
++        if !seen[index] {
++            if !updated.is_empty() && !updated.ends_with(b"\n") {
++                updated.push(b'\n');
++            }
++            updated.extend_from_slice(name);
++            updated.extend_from_slice(b":\t");
++            updated.extend_from_slice(value.as_bytes());
++            updated.push(b'\n');
++        }
++    }
++    updated
++}
++
++fn publish_cursor_resources(
++    connection: &xcb::Connection,
++    atoms: &super::Atoms,
++    root: x::Window,
++    cursor: &CursorSettings,
++) {
++    // This connection belongs to the isolated Xwayland server. Preserve unrelated
++    // resources, including Xft.dpi, and never write the host desktop's database.
++    let reply = connection
++        .wait_for_reply(connection.send_request(&x::GetProperty {
++            delete: false,
++            window: root,
++            property: atoms.resource_manager,
++            r#type: x::ATOM_STRING,
++            long_offset: 0,
++            long_length: u32::MAX,
++        }))
++        .unwrap();
++    let resources = match reply.r#type() {
++        x::ATOM_NONE => &[],
++        x::ATOM_STRING => reply.value::<u8>(),
++        other => {
++            warn!("RESOURCE_MANAGER has unexpected type {other:?}; cursor resources unchanged");
++            return;
++        }
++    };
++    connection
++        .send_and_check_request(&x::ChangeProperty {
++            window: root,
++            mode: x::PropMode::Replace,
++            property: atoms.resource_manager,
++            r#type: x::ATOM_STRING,
++            data: &merge_cursor_resources(resources, cursor),
++        })
++        .unwrap();
+ }
+ 
+ impl Settings {
+@@ -87,44 +232,76 @@ impl Settings {
+             })
+             .expect("Couldn't create window for settings");
+ 
+-        let s = Settings {
++        let s = Self::with_cursor(window, CursorSettings::from_environment());
++
++        connection
++            .send_and_check_request(&x::ChangeProperty {
++                window,
++                mode: x::PropMode::Replace,
++                property: atoms.xsettings_settings,
++                r#type: atoms.xsettings_settings,
++                data: &s.as_data(),
++            })
++            .unwrap();
++        if let Some(cursor) = &s.cursor {
++            publish_cursor_resources(connection, atoms, root, cursor);
++        }
++
++        s
++    }
++
++    fn with_cursor(window: x::Window, cursor: Option<CursorSettings>) -> Self {
++        let mut s = Settings {
+             window,
+             serial: 0,
++            cursor,
+             settings: HashMap::from([
+                 (
+                     XFT_DPI,
+-                    IntSetting {
+-                        value: DEFAULT_DPI * DPI_SCALE_FACTOR,
++                    Setting {
++                        value: SettingValue::Integer(DEFAULT_DPI * DPI_SCALE_FACTOR),
+                         last_change_serial: 0,
+                     },
+                 ),
+                 (
+                     GDK_WINDOW_SCALE,
+-                    IntSetting {
+-                        value: 1,
++                    Setting {
++                        value: SettingValue::Integer(1),
+                         last_change_serial: 0,
+                     },
+                 ),
+                 (
+                     GDK_UNSCALED_DPI,
+-                    IntSetting {
+-                        value: DEFAULT_DPI * DPI_SCALE_FACTOR,
++                    Setting {
++                        value: SettingValue::Integer(DEFAULT_DPI * DPI_SCALE_FACTOR),
+                         last_change_serial: 0,
+                     },
+                 ),
+             ]),
+         };
+ 
+-        connection
+-            .send_and_check_request(&x::ChangeProperty {
+-                window,
+-                mode: x::PropMode::Replace,
+-                property: atoms.xsettings_settings,
+-                r#type: atoms.xsettings_settings,
+-                data: &s.as_data(),
+-            })
+-            .unwrap();
+-
++        if let Some(cursor) = &s.cursor {
++            if let Some(theme) = &cursor.theme {
++                s.settings.insert(
++                    GTK_CURSOR_THEME,
++                    Setting {
++                        value: SettingValue::String(theme.clone()),
++                        last_change_serial: 0,
++                    },
++                );
++            }
++            if let Some(size) = cursor.size {
++                // GTK3 and Xcursor both expect physical X11 pixels here, not
++                // logical desktop points. The launcher supplies logical_size * R.
++                s.settings.insert(
++                    GTK_CURSOR_SIZE,
++                    Setting {
++                        value: SettingValue::Integer(size),
++                        last_change_serial: 0,
++                    },
++                );
++            }
++        }
+         s
+     }
+ 
+@@ -152,11 +329,21 @@ impl Settings {
+         }
+ 
+         for (name, setting) in &self.settings {
+-            data.extend_from_slice(&[setting_type::INTEGER, 0]);
++            let value_type = match &setting.value {
++                SettingValue::Integer(_) => setting_type::INTEGER,
++                SettingValue::String(_) => setting_type::STRING,
++            };
++            data.extend_from_slice(&[value_type, 0]);
+             data.extend_from_slice(&(name.len() as u16).to_le_bytes());
+             insert_with_padding(name.as_bytes(), &mut data);
+             data.extend_from_slice(&setting.last_change_serial.to_le_bytes());
+-            data.extend_from_slice(&setting.value.to_le_bytes());
++            match &setting.value {
++                SettingValue::Integer(value) => data.extend_from_slice(&value.to_le_bytes()),
++                SettingValue::String(value) => {
++                    data.extend_from_slice(&(value.len() as u32).to_le_bytes());
++                    insert_with_padding(value.as_bytes(), &mut data);
++                }
++            }
+         }
+ 
+         data
+@@ -166,29 +353,202 @@ impl Settings {
+         self.serial += 1;
+ 
+         let scale = scale.max(1.0);
+-        let setting = IntSetting {
+-            value: (scale * DEFAULT_DPI as f64 * DPI_SCALE_FACTOR as f64).round() as i32,
++        let dpi = (scale * DEFAULT_DPI as f64 * DPI_SCALE_FACTOR as f64).round() as i32;
++        let setting = Setting {
++            value: SettingValue::Integer(dpi),
+             last_change_serial: self.serial,
+         };
+         self.settings.entry(XFT_DPI).insert_entry(setting);
+         // Gdk/WindowScalingFactor + Gdk/UnscaledDPI is identical to setting
+         // GDK_SCALE = scale and then GDK_DPI_SCALE = 1 / scale.
+-        self.settings
+-            .entry(GDK_UNSCALED_DPI)
+-            .insert_entry(IntSetting {
+-                value: setting.value / scale as i32,
+-                last_change_serial: self.serial,
+-            });
+-        self.settings
+-            .entry(GDK_WINDOW_SCALE)
+-            .insert_entry(IntSetting {
+-                value: scale as i32,
+-                last_change_serial: self.serial,
+-            });
++        self.settings.entry(GDK_UNSCALED_DPI).insert_entry(Setting {
++            value: SettingValue::Integer(dpi / scale as i32),
++            last_change_serial: self.serial,
++        });
++        self.settings.entry(GDK_WINDOW_SCALE).insert_entry(Setting {
++            value: SettingValue::Integer(scale as i32),
++            last_change_serial: self.serial,
++        });
+     }
+ 
+     fn xft_dpi(&self) -> i32 {
+         let setting = self.settings.get(XFT_DPI).unwrap();
+-        (setting.value as f64 / DPI_SCALE_FACTOR as f64).round() as i32
++        let SettingValue::Integer(value) = setting.value else {
++            unreachable!("Xft/DPI must be an integer")
++        };
++        (value as f64 / DPI_SCALE_FACTOR as f64).round() as i32
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use xcb::XidNew;
++
++    fn decode(data: &[u8]) -> (u32, HashMap<String, (u32, SettingValue)>) {
++        fn word(data: &[u8], offset: &mut usize) -> u32 {
++            let value = u32::from_le_bytes(data[*offset..*offset + 4].try_into().unwrap());
++            *offset += 4;
++            value
++        }
++        fn padded_string(data: &[u8], offset: &mut usize, length: usize) -> String {
++            let value = String::from_utf8(data[*offset..*offset + length].to_vec()).unwrap();
++            *offset += length;
++            while *offset % 4 != 0 {
++                assert_eq!(data[*offset], 0, "Nonzero Xsettings padding");
++                *offset += 1;
++            }
++            value
++        }
++        assert_eq!(&data[..4], &[0, 0, 0, 0]);
++        let mut offset = 4;
++        let serial = word(data, &mut offset);
++        let count = word(data, &mut offset);
++        let mut values = HashMap::new();
++        for _ in 0..count {
++            let kind = data[offset];
++            assert_eq!(data[offset + 1], 0);
++            let length = u16::from_le_bytes(data[offset + 2..offset + 4].try_into().unwrap());
++            offset += 4;
++            let name = padded_string(data, &mut offset, length as usize);
++            let changed = word(data, &mut offset);
++            let value = match kind {
++                setting_type::INTEGER => SettingValue::Integer(word(data, &mut offset) as i32),
++                setting_type::STRING => {
++                    let length = word(data, &mut offset) as usize;
++                    SettingValue::String(padded_string(data, &mut offset, length))
++                }
++                other => panic!("Unexpected Xsettings type {other}"),
++            };
++            assert!(values.insert(name, (changed, value)).is_none());
++        }
++        assert_eq!(offset, data.len(), "Trailing or missing serialized bytes");
++        (serial, values)
++    }
++
++    #[test]
++    fn cursor_xsettings_strings_use_utf8_byte_lengths_and_zero_padding() {
++        // Cover every padding length and a multibyte theme name.
++        for theme in ["A", "AB", "ABC", "ABCD", "Aé", "Breeze_Light"] {
++            let settings = Settings::with_cursor(
++                x::Window::new(1),
++                Some(CursorSettings {
++                    theme: Some(theme.to_owned()),
++                    size: Some(72),
++                }),
++            );
++            let (serial, values) = decode(&settings.as_data());
++            assert_eq!(serial, 0);
++            assert_eq!(values.len(), 5);
++            assert_eq!(
++                values[GTK_CURSOR_THEME],
++                (0, SettingValue::String(theme.to_owned()))
++            );
++            assert_eq!(values[GTK_CURSOR_SIZE], (0, SettingValue::Integer(72)));
++        }
++    }
++
++    #[test]
++    fn cursor_configuration_is_only_enabled_by_valid_fixed_render_policy() {
++        assert_eq!(
++            CursorSettings::from_values(None, Some("\n"), Some("bad")),
++            Ok(None)
++        );
++        assert_eq!(CursorSettings::from_values(Some("2"), None, None), Ok(None));
++        assert_eq!(
++            CursorSettings::from_values(Some("2"), Some("Breeze_Light"), Some("72")),
++            Ok(Some(CursorSettings {
++                theme: Some("Breeze_Light".into()),
++                size: Some(72)
++            }))
++        );
++        assert_eq!(
++            CursorSettings::from_values(Some("3"), None, Some("108")),
++            Ok(Some(CursorSettings {
++                theme: None,
++                size: Some(108)
++            }))
++        );
++        for scale in ["", "0", "-1", "1.5", "5", "NaN"] {
++            assert!(
++                CursorSettings::from_values(Some(scale), Some("Breeze_Light"), Some("72")).is_err()
++            );
++        }
++        assert!(CursorSettings::from_values(Some("4"), None, Some("128")).is_ok());
++        for size in ["", "0", "-1", "1.5", "129", "144", "1025", "bad"] {
++            assert!(CursorSettings::from_values(Some("2"), None, Some(size)).is_err());
++        }
++        for theme in ["", "bad\nname", "bad\0name", "bad\tname"] {
++            assert!(CursorSettings::from_values(Some("2"), Some(theme), Some("72")).is_err());
++        }
++    }
++
++    #[test]
++    fn default_xsettings_and_dpi_updates_keep_the_original_integer_contract() {
++        let mut settings = Settings::with_cursor(x::Window::new(1), None);
++        let (serial, values) = decode(&settings.as_data());
++        assert_eq!(serial, 0);
++        assert_eq!(values.len(), 3);
++        assert_eq!(values[XFT_DPI], (0, SettingValue::Integer(96 * 1024)));
++        assert_eq!(values[GDK_WINDOW_SCALE], (0, SettingValue::Integer(1)));
++        assert_eq!(
++            values[GDK_UNSCALED_DPI],
++            (0, SettingValue::Integer(96 * 1024))
++        );
++        settings.set_scale(2.0);
++        let (serial, values) = decode(&settings.as_data());
++        assert_eq!(serial, 1);
++        assert_eq!(values.len(), 3);
++        assert_eq!(values[XFT_DPI], (1, SettingValue::Integer(192 * 1024)));
++        assert_eq!(values[GDK_WINDOW_SCALE], (1, SettingValue::Integer(2)));
++        assert_eq!(
++            values[GDK_UNSCALED_DPI],
++            (1, SettingValue::Integer(96 * 1024))
++        );
++        assert_eq!(settings.xft_dpi(), 192);
++    }
++
++    #[test]
++    fn dpi_updates_preserve_cursor_theme_and_physical_size() {
++        let cursor = CursorSettings {
++            theme: Some("Breeze_Light".into()),
++            size: Some(72),
++        };
++        let mut settings = Settings::with_cursor(x::Window::new(1), Some(cursor));
++        settings.set_scale(2.0);
++        let (_, values) = decode(&settings.as_data());
++        assert_eq!(
++            values[GTK_CURSOR_THEME],
++            (0, SettingValue::String("Breeze_Light".into()))
++        );
++        assert_eq!(values[GTK_CURSOR_SIZE], (0, SettingValue::Integer(72)));
++    }
++
++    #[test]
++    fn cursor_resource_merge_preserves_other_resources_and_replaces_duplicates() {
++        let cursor = CursorSettings {
++            theme: Some("Breeze_Light".into()),
++            size: Some(72),
++        };
++        let original = b"! keep comment\nXft.dpi:\t192\nXcursor.size: 36\nXcursor.theme: Adwaita\nXcursor.size: 48\nOther.value: untouched";
++        let merged = merge_cursor_resources(original, &cursor);
++        assert_eq!(merged, b"! keep comment\nXft.dpi:\t192\nXcursor.size:\t72\nXcursor.theme:\tBreeze_Light\nOther.value: untouched");
++        assert_eq!(merge_cursor_resources(&merged, &cursor), merged);
++        let size_only = CursorSettings {
++            theme: None,
++            size: Some(72),
++        };
++        assert_eq!(
++            merge_cursor_resources(b"Xcursor.theme: keep", &size_only),
++            b"Xcursor.theme: keep\nXcursor.size:\t72\n"
++        );
++        let escaped = CursorSettings {
++            theme: Some("a\\b".into()),
++            size: None,
++        };
++        assert_eq!(
++            merge_cursor_resources(b"", &escaped),
++            b"Xcursor.theme:\ta\\\\b\n"
++        );
+     }
+ }
+diff --git a/src/xstate/tests.rs b/src/xstate/tests.rs
+index d59099c..8cf97c7 100644
+--- a/src/xstate/tests.rs
++++ b/src/xstate/tests.rs
+@@ -531,3 +531,40 @@ mod window_role_heuristics {
+         assert_eq!(win.guess_window_role(&win_types), WindowRole::Splash);
+     }
+ }
++
++#[test]
++fn ewmh_client_lists_follow_managed_lifecycle_and_real_stacking() {
++    let a = x::Window::new(10);
++    let b = x::Window::new(11);
++    let c = x::Window::new(12);
++    let popup = x::Window::new(13);
++    let helper = x::Window::new(14);
++    let mut clients = EwmhClients::default();
++    assert!(clients.map_order.is_empty());
++    assert!(clients.stacking(&[helper, popup]).is_empty());
++    clients.mapped(a, true);
++    clients.mapped(popup, false); // Override-redirect menus/drag ghosts.
++    clients.mapped(helper, false); // WM/selection InputOnly helpers.
++    clients.mapped(b, true); // Managed dialog/utility clients count too.
++    clients.mapped(a, true); // Duplicate MapNotify must not reorder or duplicate.
++    clients.mapped(c, true);
++    assert_eq!(clients.map_order, vec![a, b, c]);
++    assert_eq!(clients.stacking(&[helper, a, popup, b, c]), vec![a, b, c]);
++    // A native raise changes only the QueryTree stacking order, preserving the
++    // EWMH initial-map order and excluding helper/override-redirect windows.
++    assert_eq!(clients.stacking(&[helper, b, popup, c, a]), vec![b, c, a]);
++    assert_eq!(clients.map_order, vec![a, b, c]);
++    clients.withdrawn(b); // Unmap/destroy/reparent-away share withdrawal semantics.
++    clients.withdrawn(b); // Duplicate lifecycle events are harmless.
++    assert_eq!(clients.map_order, vec![a, c]);
++    clients.mapped(b, true);
++    assert_eq!(clients.map_order, vec![a, c, b]);
++    assert_eq!(clients.stacking(&[helper, b, a, popup, c]), vec![b, a, c]);
++    clients.mapped(b, false); // A remap that became unmanaged must remove it.
++    assert_eq!(clients.map_order, vec![a, c]);
++    for window in [a, b, c] {
++        clients.withdrawn(window);
++    }
++    assert!(clients.map_order.is_empty());
++    assert!(clients.stacking(&[a, b, c, helper, popup]).is_empty());
++}
+diff --git a/testwl/src/lib.rs b/testwl/src/lib.rs
+index b9b5503..db6ecff 100644
+--- a/testwl/src/lib.rs
++++ b/testwl/src/lib.rs
+@@ -22,7 +22,10 @@ use wayland_protocols::{
+             zwp_locked_pointer_v1::{self, ZwpLockedPointerV1},
+             zwp_pointer_constraints_v1::{self, ZwpPointerConstraintsV1},
+         },
+-        relative_pointer::zv1::server::zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
++        relative_pointer::zv1::server::{
++            zwp_relative_pointer_manager_v1::{self, ZwpRelativePointerManagerV1},
++            zwp_relative_pointer_v1::{self, ZwpRelativePointerV1},
++        },
+         tablet::zv2::server::{
+             zwp_tablet_manager_v2::ZwpTabletManagerV2,
+             zwp_tablet_pad_group_v2::ZwpTabletPadGroupV2,
+@@ -109,6 +112,7 @@ pub struct Viewport {
+ pub struct SurfaceData {
+     pub surface: WlSurface,
+     pub buffer: Option<WlBuffer>,
++    pub buffer_scale: i32,
+     pub last_damage: Option<BufferDamage>,
+     pub role: Option<SurfaceRole>,
+     pub last_enter_serial: Option<u32>,
+@@ -253,9 +257,16 @@ pub struct LockedPointer {
+     pub surface: SurfaceId,
+     pub cursor_hint: Option<Vec2f>,
+ }
++#[derive(Debug, Copy, Clone, PartialEq, Eq)]
++pub struct CursorData {
++    pub surface: SurfaceId,
++    pub hotspot: Vec2,
++}
++
+ struct PointerState {
+     pointer: WlPointer,
+     locked: Option<LockedPointer>,
++    cursor: Option<CursorData>,
+ }
+ 
+ struct State {
+@@ -272,10 +283,12 @@ struct State {
+     callbacks: Vec<WlCallback>,
+     seat: Option<WlSeat>,
+     pointer: Option<PointerState>,
++    relative_pointers: Vec<ZwpRelativePointerV1>,
+     keyboard: Option<KeyboardState>,
+     touch: Option<WlTouch>,
+     tablet: Option<ZwpTabletV2>,
+     tablet_tool: Option<ZwpTabletToolV2>,
++    tablet_cursor: Option<CursorData>,
+     configure_serial: u32,
+     clipboard: Option<WlDataSource>,
+     primary: Option<ZwpPrimarySelectionSourceV1>,
+@@ -304,10 +317,12 @@ impl Default for State {
+             callbacks: Vec::new(),
+             seat: None,
+             pointer: None,
++            relative_pointers: Vec::new(),
+             keyboard: None,
+             touch: None,
+             tablet: None,
+             tablet_tool: None,
++            tablet_cursor: None,
+             configure_serial: 0,
+             clipboard: None,
+             primary: None,
+@@ -481,7 +496,9 @@ impl Server {
+         dh.create_global::<State, WpViewporter, _>(1, ());
+         dh.create_global::<State, ZwpPointerConstraintsV1, _>(1, ());
+         global_noop!(ZwpLinuxDmabufV1);
+-        global_noop!(ZwpRelativePointerManagerV1);
++        if noops {
++            dh.create_global::<State, ZwpRelativePointerManagerV1, _>(1, ());
++        }
+         global_noop!(WpLinuxDrmSyncobjManagerV1);
+ 
+         struct HandlerData;
+@@ -645,6 +662,19 @@ impl Server {
+         self.display.flush_clients().unwrap();
+     }
+ 
++    /// Configure a popup with a compositor-chosen extent rather than its request.
++    pub fn configure_popup_size(&mut self, surface_id: SurfaceId, width: i32, height: i32) {
++        let surface = self.state.surfaces.get_mut(&surface_id).unwrap();
++        let Some(SurfaceRole::Popup(popup)) = &mut surface.role else {
++            panic!("Surface is not a popup");
++        };
++        let offset = popup.positioner_state.offset;
++        popup.popup.configure(offset.x, offset.y, width, height);
++        popup.xdg.configure(self.state.configure_serial);
++        self.state.configure_serial += 1;
++        self.display.flush_clients().unwrap();
++    }
++
+     #[track_caller]
+     pub fn popup_done(&mut self, surface_id: SurfaceId) {
+         self.state.popup_done(surface_id);
+@@ -663,6 +693,25 @@ impl Server {
+         self.state.pointer.as_ref().map(|p| &p.pointer).unwrap()
+     }
+ 
++    #[track_caller]
++    pub fn relative_pointer(&self) -> &ZwpRelativePointerV1 {
++        self.state
++            .relative_pointers
++            .last()
++            .expect("No relative pointer created")
++    }
++
++    pub fn pointer_cursor(&self) -> Option<CursorData> {
++        self.state
++            .pointer
++            .as_ref()
++            .and_then(|pointer| pointer.cursor)
++    }
++
++    pub fn tablet_cursor(&self) -> Option<CursorData> {
++        self.state.tablet_cursor
++    }
++
+     #[track_caller]
+     pub fn locked_pointer(&self) -> Option<&LockedPointer> {
+         self.state.pointer.as_ref().unwrap().locked.as_ref()
+@@ -1021,6 +1070,7 @@ simple_global_dispatch!(ZxdgDecorationManagerV1);
+ simple_global_dispatch!(WpViewporter);
+ simple_global_dispatch!(WpFractionalScaleManagerV1);
+ simple_global_dispatch!(ZwpPointerConstraintsV1);
++simple_global_dispatch!(ZwpRelativePointerManagerV1);
+ 
+ impl Dispatch<ZwpTabletManagerV2, ()> for State {
+     fn request(
+@@ -1088,7 +1138,7 @@ macro_rules! unhandled {
+ 
+ unhandled!(ZwpTabletSeatV2);
+ unhandled!(ZwpTabletV2);
+-unhandled!(ZwpTabletToolV2);
++
+ unhandled!(ZwpTabletPadV2);
+ unhandled!(ZwpTabletPadGroupV2);
+ unhandled!(ZwpTabletPadRingV2);
+@@ -1419,6 +1469,7 @@ impl Dispatch<WlSeat, ()> for State {
+                 state.pointer = Some(PointerState {
+                     pointer: data_init.init(id, ()),
+                     locked: None,
++                    cursor: None,
+                 });
+             }
+             wl_seat::Request::GetKeyboard { id } => {
+@@ -1447,18 +1498,14 @@ impl Dispatch<WlPointer, ()> for State {
+         _: &mut wayland_server::DataInit<'_, Self>,
+     ) {
+         match request {
+-            wl_pointer::Request::SetCursor { surface, .. } => {
+-                if let Some(surface) = surface {
+-                    let data = state.surfaces.get_mut(&SurfaceId::from(&surface)).unwrap();
+-
+-                    assert!(
+-                        matches!(
+-                            data.role.replace(SurfaceRole::Cursor),
+-                            None | Some(SurfaceRole::Cursor)
+-                        ),
+-                        "Surface already had a non cursor role!"
+-                    );
+-                }
++            wl_pointer::Request::SetCursor {
++                surface,
++                hotspot_x,
++                hotspot_y,
++                ..
++            } => {
++                let cursor = state.record_cursor(surface, hotspot_x, hotspot_y);
++                state.pointer.as_mut().unwrap().cursor = cursor;
+             }
+             wl_pointer::Request::Release => {
+                 state.pointer.take();
+@@ -1958,6 +2005,7 @@ impl Dispatch<WlCompositor, ()> for State {
+                     SurfaceData {
+                         surface,
+                         buffer: None,
++                        buffer_scale: 1,
+                         last_damage: None,
+                         role: None,
+                         last_enter_serial: None,
+@@ -2059,7 +2107,9 @@ impl Dispatch<WlSurface, ()> for State {
+                 state.surfaces.remove(&id);
+             }
+             SetInputRegion { .. } => {}
+-            SetBufferScale { .. } => {}
++            SetBufferScale { scale } => {
++                data.buffer_scale = scale;
++            }
+             other => todo!("unhandled request {other:?}"),
+         }
+     }
+@@ -2503,3 +2553,83 @@ impl Dispatch<ZwpLockedPointerV1, ()> for State {
+         }
+     }
+ }
++
++impl Dispatch<ZwpRelativePointerManagerV1, ()> for State {
++    fn request(
++        state: &mut Self,
++        _: &Client,
++        _: &ZwpRelativePointerManagerV1,
++        request: <ZwpRelativePointerManagerV1 as Resource>::Request,
++        _: &(),
++        _: &DisplayHandle,
++        data_init: &mut wayland_server::DataInit<'_, Self>,
++    ) {
++        match request {
++            zwp_relative_pointer_manager_v1::Request::GetRelativePointer { id, pointer } => {
++                assert_eq!(pointer, state.pointer.as_ref().unwrap().pointer);
++                state.relative_pointers.push(data_init.init(id, ()));
++            }
++            zwp_relative_pointer_manager_v1::Request::Destroy => {}
++            _ => todo!("{request:?}"),
++        }
++    }
++}
++
++impl Dispatch<ZwpRelativePointerV1, ()> for State {
++    fn request(
++        _: &mut Self,
++        _: &Client,
++        _: &ZwpRelativePointerV1,
++        request: <ZwpRelativePointerV1 as Resource>::Request,
++        _: &(),
++        _: &DisplayHandle,
++        _: &mut wayland_server::DataInit<'_, Self>,
++    ) {
++        match request {
++            zwp_relative_pointer_v1::Request::Destroy => {}
++            _ => todo!("{request:?}"),
++        }
++    }
++}
++
++impl State {
++    fn record_cursor(&mut self, surface: Option<WlSurface>, x: i32, y: i32) -> Option<CursorData> {
++        surface.map(|surface| {
++            let surface = SurfaceId::from(&surface);
++            let data = self.surfaces.get_mut(&surface).unwrap();
++            assert!(matches!(
++                data.role.replace(SurfaceRole::Cursor),
++                None | Some(SurfaceRole::Cursor)
++            ));
++            CursorData {
++                surface,
++                hotspot: Vec2 { x, y },
++            }
++        })
++    }
++}
++
++impl Dispatch<ZwpTabletToolV2, ()> for State {
++    fn request(
++        state: &mut Self,
++        _: &Client,
++        _: &ZwpTabletToolV2,
++        request: <ZwpTabletToolV2 as Resource>::Request,
++        _: &(),
++        _: &DisplayHandle,
++        _: &mut wayland_server::DataInit<'_, Self>,
++    ) {
++        match request {
++            zwp_tablet_tool_v2::Request::SetCursor {
++                surface,
++                hotspot_x,
++                hotspot_y,
++                ..
++            } => {
++                state.tablet_cursor = state.record_cursor(surface, hotspot_x, hotspot_y);
++            }
++            zwp_tablet_tool_v2::Request::Destroy => {}
++            _ => todo!("{request:?}"),
++        }
++    }
++}

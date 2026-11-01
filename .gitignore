@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+libexec/xwayland-satellite
+bridge/**/target/
+.install-*/

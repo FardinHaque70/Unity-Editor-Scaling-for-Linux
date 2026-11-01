@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unity-scale"
+version = "0.1.0b1"
+description = "Editor-wide Unity scaling for KDE Wayland, with a GTK4 interface"
+requires-python = ">=3.10"
+license = {text = "MPL-2.0"}
+
+[project.scripts]
+unity-scale = "unity_scale.__main__:main"
+
+[tool.setuptools]
+packages = ["unity_scale"]

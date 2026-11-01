@@ -1,0 +1,60 @@
+{
+  "upstream": "https://github.com/Supreeeme/xwayland-satellite",
+  "tag": "v0.8.3",
+  "commit": "b83eab900644e4c7c77982ce3d44cb490f0c5e1d",
+  "patch": "Fixed render-scale/virtual monitor geometry, focused relative motion, cursor-role viewport/hotspot conversion, and isolated typed cursor theme/size advertisement; publish isolated Xcursor resources before libxcb-cursor root cursor initialization; optional static application-only UI multiplier decoupled from integer render/cursor density; native popup allocation preserved through integral host logical-size roundtrip; EWMH managed client and stacking lists for native GTK/Unity window enumeration",
+  "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+  "rust_package_sha256": "d81d9152170af841156c114fed543dc2e3d71f681bb786737cd8c0c015a93672",
+  "build_command": "RUSTFLAGS=\"-C target-cpu=x86-64\" cargo build --locked --release",
+  "binary_sha256": "bfcd111ef361336aa5440870342603cb9cd945b32c7ddfa92feec9b5c878776b",
+  "cpu_target": "generic x86-64",
+  "glibc_minimum": "2.43",
+  "warning": "Prototype. Native GTK/Unity enumeration and tab-drag behavior require live verification after this EWMH fix; broader rootless global-position/docking limitations may remain. Popup allocation and percentage/cursor policies retain prior protocol coverage. Wider compositor/distribution testing remains outstanding.",
+  "tests": {
+    "default_library_suite": "109 passed: all108 V5.1 regression tests plus EWMH managed-client lifecycle and real-stack-order model test.",
+    "cursor_protocol_and_settings": "10 passed",
+    "fixed_render_geometry": "10 passed, including earlier geometry and new cursor tests",
+    "format_and_diff": "cargo fmt --all --check and git diff --check passed",
+    "source_archive": "Includes all custom source and v4.1 root cursor startup ordering fix. No bit-for-bit reproducibility claim.",
+    "legacy_integer_relative_motion": "3 passed",
+    "ui_multiplier": "145%,150%,160% target cases on145% desktop; virtual mixed-output geometry, configure/viewport, absolute and accelerated relative motion, fixed global Xsettings density2 and unchanged cursor viewport/hotspot. Relative transport compared within one wl_fixed quantum (1/256). Adjacent monitor edge rounding includes negative origins and position-only rounding phase changes. Position events are emitted before synthetic geometry completion.",
+    "native_popup": "4widths times12heights times145/150/160% targets; tiny/odd/two-row allocations, repeated configure3times per requested size, exact native size retention and positioner/viewport consistency. Distinct compositor40x30 logical constraint honored.",
+    "ewmh": "Empty initial model, managed dialog/utility inclusion, override-redirect/InputOnly helper exclusion, duplicate maps/withdrawals, remap insertion ordering, real QueryTree raise order independent of initial-map order, removal when remapped unmanaged."
+  },
+  "revision": "prototype-v5.2",
+  "default_behavior_change": "Relative-pointer accelerated dx/dy retain the v2 conversion in all modes. Cursor transformations and cursor Xsettings/Xresource advertisement require explicit numeric fixed-render policy; no host desktop settings are written. EWMH client/stacking property publication and native stacking ConfigureRequest support apply in all modes.",
+  "configuration": {
+    "UNITY_SATELLITE_RENDER_SCALE": "Optional integer 1..4; fixed rendering density for all surfaces/outputs, independent of host scale; takes precedence over legacy flag",
+    "UNITY_SATELLITE_INTEGER_RENDER": "Legacy =1 selects host integer-scale fallback, with its original geometry limitations; do not use for the v3 launcher",
+    "UNITY_SATELLITE_UI_MULTIPLIER": "Optional finite positive target_UI_percent/desktop_percent; requires numeric render-scale policy. Default1 preserves v4.1. Startup only."
+  },
+  "geometry": "Client virtual monitor rectangles transform each authoritative host logical edge with V=B/UI_MULTIPLIER; extents are rounded right/bottom edges minus rounded left/top edges. Window configure, viewport, popup and input transforms use V. Outward integer wl_output.scale and Xsettings/GTK density remain B. Physical millimeters unchanged.",
+  "platform_scope": "Prototype for Wayland compositors exposing zxdg_output_manager_v1, xdg_wm_base and wp_viewporter. Fixed mode fails clearly if xdg_output manager is missing. Original default mode remains available without fixed override.",
+  "rust_requirement": "Current stable Rust; this build and tests used 1.99.1. No older compiler/MSRV validation claimed.",
+  "portability": "Included local binary requires glibc 2.43. Build the supplied source on each intended target distribution/sysroot; no universal Linux binary compatibility claimed.",
+  "peer_review": "Independent focused V5 review approved density/input/cursor separation, edge-based mixed-output geometry, host-origin source priority, position-only geometry refresh and event completion ordering. Reviewer independently read107-test and3-UI-test passing logs; no actionable issue remained in the static percentage feature. Independent V5.1 focused source review approved native-request preservation, per-axis accepted-size logic, ceil positioner/parent anchor sizing and unchanged default behavior. Full108-test passing result recorded. Independent focused V5.2 review found no blocker in startup advertisement, model filtering, managed lifecycle, actual-stack QueryTree ordering, refresh notifications or cache behavior; minor remap-to-unmanaged edge was corrected and tested.",
+  "cursor_policy": {
+    "activation": "Only numeric UNITY_SATELLITE_RENDER_SCALE activates cursor geometry/theme advertisement; default and legacy integer-only modes retain upstream cursor pass-through.",
+    "geometry": "Cursor image destination is ceil(raw buffer dimensions / R). Requested hotspot is converted by incoming_buffer_scale / R. Incoming buffer_scale is retained, avoiding double scaling if future XWayland already uses scale 2. Mouse and tablet cursors share this policy.",
+    "buffers": "Dimension tracking covers SHM, immediate DMABuf, and DRM CreateBuffer/CreatePlanarBuffer/CreatePrimeBuffer. SHM cursor protocol paths are tested; DMABuf/DRM tracking is source-reviewed and compile-checked.",
+    "configuration": "Launcher passes identical XCURSOR_THEME and physical XCURSOR_SIZE to helper and Editor. Helper publishes Gtk/CursorThemeName(string), Gtk/CursorThemeSize(integer), Xcursor.theme and Xcursor.size on its isolated X server.",
+    "physical_size_limit": "1..128 X11 pixels, matching the installed GTK3 property maximum. Example logical 36 at R=2 uses 72; R=4 requires logical cursor <=32 unless cursor density is decoupled in a later design.",
+    "default_sources": "KDE/GNOME/GTK theme and logical size discovery belong to the launcher; this helper validates and consumes its explicit environment.",
+    "startup_order": "Settings::new publishes Xcursor.theme/size before CursorContext::new/load_cursor caches the root cursor theme. libxcb-cursor reads theme from Xresources rather than XCURSOR_THEME."
+  },
+  "cursor_source_evidence": {
+    "xwayland": "https://www.x.org/releases/individual/xserver/xwayland-24.1.14.tar.xz; xwayland-cursor.c152/216 use global_surface_scale; xwayland-screen.c839 bypasses its update in rootless mode, leaving initial scale 1.",
+    "libXcursor": "https://www.x.org/releases/individual/lib/libXcursor-1.2.3.tar.xz; src/display.c185..202 chooses env size, Xresource, then inferred Xft.dpi * 16/72.",
+    "gtk_limit": "Installed GTK3 GParamSpecInt introspection confirmed gtk-cursor-theme-size minimum 0, maximum 128.",
+    "root_cursor": "Installed libxcb-cursor contains Xcursor.theme and XCURSOR_SIZE but no XCURSOR_THEME. Parent live probe replaced only isolated :90 root cursor: actual XFixes cursor changed immediately from exact Adwaita72 image to Breeze_Light96-canvas image (requested size72), proving inherited root cursor was remaining theme source."
+  },
+  "source_archive_sha256": "3bbac58fe7e0ccf451d690f7d647c80818e64725dc6c96214841d80d8b0b8a91",
+  "ui_multiplier_policy": {
+    "render_density": "B = integer UNITY_SATELLITE_RENDER_SCALE; fixed for Xsettings/GTK/font/cursor density.",
+    "window_mapping": "V = B / UI_MULTIPLIER. Unity100point element produces100*B Xpixels, mapped through V to host compositor logical units. At desktop1.45, target150% uses multiplier150/145 and V1.9333333333.",
+    "cursor": "Cursor surface viewport and hotspot conversion retain B; cursor remains the desktop cursor size independent of the application UI multiplier.",
+    "limitations": "Static startup configuration, no hot reload. Integer window positions/viewports quantize to integral protocol units. Virtual output rectangles transform shared edges, avoiding adjacency gaps from independent origin/extent rounding."
+  },
+  "popup_policy": "Only numeric fixed-render mode stores requested native popup pixel size and its ceil(pixel/V) host extent. Accepted matching logical axes restore exact native pixels; truly different compositor-selected axes use existing conversion. Creation/reposition and parent anchor extents use ceil; default upstream mode unchanged.",
+  "ewmh_policy": "Startup creates _NET_CLIENT_LIST and _NET_CLIENT_LIST_STACKING as WINDOW/32 (including empty arrays), advertises both in _NET_SUPPORTED, retains valid _NET_SUPPORTING_WM_CHECK root+child self-reference, and uses UTF8_STRING for WM name. Managed non-override-redirect InputOutput root clients retain initial-map order; QueryTree supplies bottom-to-top stacking. Map/unmap/destroy/reparent/configure events update properties only when arrays differ. Native sibling/stack-mode ConfigureRequests are honored. This support applies in all modes."
+}

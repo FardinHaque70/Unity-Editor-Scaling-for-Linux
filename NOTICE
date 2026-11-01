@@ -1,0 +1,17 @@
+Unity Scale is an independent, unofficial application. Unity is a trademark of
+Unity Technologies. This package does not include Unity Editor or Unity Hub.
+
+The included bridge is based on xwayland-satellite v0.8.3 by Supreeeme and its
+contributors, commit b83eab900644e4c7c77982ce3d44cb490f0c5e1d.
+Upstream: https://github.com/Supreeeme/xwayland-satellite
+The bridge and this application are distributed under the Mozilla Public License
+2.0. The full license, modified source and patch are included. Existing copyright
+and license notices in the upstream source are retained.
+
+The bridge's bundled Open Sans font retains its upstream license notices.
+GTK, libadwaita, Python, PyGObject, Xwayland and system libraries are installed by
+the user's distribution and remain under their respective licenses.
+
+The beta application and bridge changes were developed with AI assistance.
+Automated tests, focused peer review and local interactive tests are documented
+in docs/VALIDATION.md. This does not claim independent human code review.

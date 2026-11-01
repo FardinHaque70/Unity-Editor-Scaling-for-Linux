@@ -1,0 +1,34 @@
+# Local/source release recipe. Put the source release tarball beside this file.
+# A public AUR submission should use the final repository release URL and SHA256.
+pkgname=unity-scale
+pkgver=0.1.0_beta.1
+pkgrel=1
+pkgdesc='Editor-wide Unity scaling with a GTK interface for KDE Wayland'
+arch=('x86_64')
+license=('MPL-2.0')
+depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'xorg-xwayland' 'libxcb' 'xcb-util-cursor' 'libx11' 'kscreen' 'wayland-utils')
+makedepends=('rust' 'clang' 'pkgconf')
+source=("unity-scale-0.1.0-beta.1-source.tar.gz")
+sha256sums=('@SOURCE_SHA256@') # Replaced by packaging/release.py after source archive creation.
+
+build() {
+  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  ./packaging/build-bridge.sh
+}
+check() {
+  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  python -m unittest discover -s tests
+}
+package() {
+  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  install -d "$pkgdir/usr/lib/unity-scale"
+  cp -a unity_scale bin libexec resources docs packaging README.md LICENSE NOTICE CHANGELOG.md install.sh uninstall.sh "$pkgdir/usr/lib/unity-scale/"
+  tar --exclude=target -cf - bridge | tar -xf - -C "$pkgdir/usr/lib/unity-scale"
+  find "$pkgdir/usr/lib/unity-scale" -name __pycache__ -type d -prune -exec rm -rf {} +
+  find "$pkgdir/usr/lib/unity-scale/bridge" -name target -type d -prune -exec rm -rf {} +
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/lib/unity-scale/bin/unity-scale "$pkgdir/usr/bin/unity-scale"
+  install -Dm644 resources/io.github.unityscale.UnityScale.desktop "$pkgdir/usr/share/applications/io.github.unityscale.UnityScale.desktop"
+  install -Dm644 resources/io.github.unityscale.UnityScale.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.unityscale.UnityScale.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
