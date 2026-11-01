@@ -117,6 +117,12 @@ class GtkAutosaveTests(unittest.TestCase):
         pump_until(lambda: self.window.close.called)
         self.assertFalse(self.row.state.pending)
 
+    def test_about_uses_current_brand_and_named_contributors(self):
+        with patch("unity_scale.gui.Adw.AboutWindow") as dialog:
+            self.window.about()
+        self.assertEqual(dialog.call_args.kwargs["application_name"], core.APP_NAME)
+        self.assertEqual(dialog.call_args.kwargs["developer_name"], "Fardin Haque and contributors")
+
     def test_quit_action_routes_through_window_close(self):
         self.window.close = Mock()
         self.app.lookup_action("quit").activate(None)

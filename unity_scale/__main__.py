@@ -43,7 +43,7 @@ def main(argv=None) -> int:
             from .gui import main as gui_main
             return gui_main(argv)
         except (ImportError, ValueError) as exc:
-            print(f"Unity Scale needs GTK4, libadwaita and Python GObject bindings: {exc}", file=sys.stderr)
+            print(f"{APP_NAME} needs GTK4, libadwaita and Python GObject bindings: {exc}", file=sys.stderr)
             return 1
     parser = _parser()
     args = parser.parse_args(argv)
@@ -81,7 +81,7 @@ def main(argv=None) -> int:
             parser.print_help()
         return 0
     except (AppError, OSError, RuntimeError, ValueError) as exc:
-        print(f"Unity Scale: {exc}", file=sys.stderr)
+        print(f"{APP_NAME}: {exc}", file=sys.stderr)
         return 1
 
 

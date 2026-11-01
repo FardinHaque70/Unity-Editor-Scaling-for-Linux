@@ -1,7 +1,7 @@
 # Installation and command line
 
-Unity Scale is a user-local KDE Wayland beta for x86_64 Linux. It needs Python
-3.10+, GTK 4.10+, libadwaita 1.4+, Xwayland 23.1+, and a compositor supporting
+Unity Editor UI Scalar for Linux is a user-local KDE Wayland beta for x86_64
+Linux. It needs Python 3.10+, GTK 4.10+, libadwaita 1.4+, Xwayland 23.1+, and a compositor supporting
 xdg-shell, viewporter and xdg-output. Native X11 sessions are outside this beta's
 scope. Other desktops and mixed-DPI hardware need further testing.
 
@@ -58,7 +58,8 @@ From an extracted release with a compatible helper, run:
 ```
 
 No sudo or pip is needed for the application installation. The default prefix
-is `~/.local`. Open **Unity Scale** from your application menu, or run
+is `~/.local`. Open **Unity Editor UI Scalar for Linux** from your application
+menu, or run
 `~/.local/bin/unity-scale`. Distribution GTK libraries are used; an AppImage is
 not supplied.
 

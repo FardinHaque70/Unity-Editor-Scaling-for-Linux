@@ -1,6 +1,6 @@
 # Local/source release recipe. Put the source release tarball beside this file.
 # A public AUR submission should use the final repository release URL and SHA256.
-pkgname=unity-scale
+pkgname=unity-editor-ui-scalar-for-linux
 pkgver=0.1.0_beta.1
 pkgrel=1
 pkgdesc='Editor-wide Unity scaling with a GTK interface for KDE Wayland'
@@ -8,19 +8,19 @@ arch=('x86_64')
 license=('MPL-2.0')
 depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'xorg-xwayland' 'libxcb' 'xcb-util-cursor' 'libx11' 'kscreen' 'wayland-utils')
 makedepends=('rust' 'clang' 'pkgconf')
-source=("unity-scale-0.1.0-beta.1-source.tar.gz")
+source=("unity-editor-ui-scalar-for-linux-0.1.0-beta.1-source.tar.gz")
 sha256sums=('@SOURCE_SHA256@') # Replaced by packaging/release.py after source archive creation.
 
 build() {
-  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  cd "$srcdir/unity-editor-ui-scalar-for-linux-0.1.0-beta.1"
   ./packaging/build-bridge.sh
 }
 check() {
-  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  cd "$srcdir/unity-editor-ui-scalar-for-linux-0.1.0-beta.1"
   python -m unittest discover -s tests
 }
 package() {
-  cd "$srcdir/unity-scale-0.1.0-beta.1"
+  cd "$srcdir/unity-editor-ui-scalar-for-linux-0.1.0-beta.1"
   install -d "$pkgdir/usr/lib/unity-scale"
   cp -a unity_scale bin libexec resources docs packaging README.md LICENSE NOTICE CHANGELOG.md install.sh uninstall.sh "$pkgdir/usr/lib/unity-scale/"
   tar --exclude=target -cf - bridge | tar -xf - -C "$pkgdir/usr/lib/unity-scale"

@@ -1,5 +1,6 @@
-Unity Scale is an independent, unofficial application. Unity is a trademark of
-Unity Technologies. This package does not include Unity Editor or Unity Hub.
+Unity Editor UI Scalar for Linux is an independent, unofficial application.
+Unity is a trademark of Unity Technologies. This package does not include
+Unity Editor or Unity Hub.
 
 The included bridge is based on xwayland-satellite v0.8.3 by Supreeeme and its
 contributors, commit b83eab900644e4c7c77982ce3d44cb490f0c5e1d.

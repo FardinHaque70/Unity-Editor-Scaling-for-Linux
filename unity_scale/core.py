@@ -21,9 +21,10 @@ from typing import Any
 from . import __version__
 
 APP_ID = "io.github.unityscale.UnityScale"
-APP_NAME = "Unity Scale"
+APP_NAME = "Unity Editor UI Scalar for Linux"
+APP_SLUG = "unity-editor-ui-scalar-for-linux"
 VERSION = __version__
-REPOSITORY_URL = "https://github.com/FardinHaque70/unity-scale"
+REPOSITORY_URL = "https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux"
 MIN_UI_SCALE = 100
 MAX_UI_SCALE = 200
 ROOT = Path(__file__).resolve().parent.parent
@@ -169,7 +170,7 @@ def inspect_editor(path: str | Path) -> Editor:
         raise AppError(f"Cannot read the Editor executable: {exc}") from exc
     # No code execution for discovery, including scripts supplied through Locate.
     if not (head.startswith(b"\x7fELF") or b"UNITY_SCALE_MANAGED_WRAPPER" in head or b"unity-scale managed" in head.lower()):
-        raise AppError("This is not a Linux Unity Editor executable or a Unity Scale managed launcher.")
+        raise AppError("This is not a Linux Unity Editor executable or a managed scaling launcher.")
     data = target.parent / "Data"
     if not (data / "Managed/UnityEditor.dll").is_file() or not (data / "Resources").is_dir():
         raise AppError("This executable does not have a valid Unity Editor installation beside it. Select Unity inside the installed Editor folder.")

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Unity Scale
-GenericName=Unity Editor Scaling
+Name=Unity Editor UI Scalar for Linux
+GenericName=Unity Editor UI Scaling
 Comment=Set a comfortable Unity Editor size for every project
 Exec=unity-scale
 Icon=io.github.unityscale.UnityScale

@@ -1,4 +1,4 @@
-# Changes
+# Unity Editor UI Scalar for Linux — changes
 
 ## 0.1.0-beta.1
 

@@ -236,7 +236,7 @@ class IntegrationTests(unittest.TestCase):
         other.parent.mkdir(parents=True)
         shutil.copy2(self.entry, other)
         before = self.editor.read_bytes()
-        with self.assertRaisesRegex(AppError, "another Unity Scale installation"):
+        with self.assertRaisesRegex(AppError, "another installation of this app"):
             integration.enable(self.editor, entrypoint=other)
         self.assertEqual(self.editor.read_bytes(), before)
 
@@ -256,7 +256,7 @@ class IntegrationTests(unittest.TestCase):
         existing_wrapper = integration._wrapper
         before = self.editor.read_bytes()
         with patch.object(integration, "_wrapper", side_effect=lambda *a: existing_wrapper(*a) + b"# newer template\n"):
-            with self.assertRaisesRegex(AppError, "older Unity Scale launcher"):
+            with self.assertRaisesRegex(AppError, "older scaling launcher"):
                 self.enable()
         self.assertEqual(self.editor.read_bytes(), before)
         self.assertTrue(integration.status(self.editor)["can_disable"])

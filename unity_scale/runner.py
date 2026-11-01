@@ -381,7 +381,7 @@ def run_editor(editor_path: str, project=None, extra_args=None, dry_run=False,
         # Headless/version commands retain their exact argv and environment.
         return subprocess.call(plan["editor_command"], start_new_session=True)
     if not os.environ.get("WAYLAND_DISPLAY"):
-        raise core.AppError("Unity Scale requires a Wayland desktop for graphical Editor launches.")
+        raise core.AppError(f"{core.APP_NAME} requires a Wayland desktop for graphical Editor launches.")
     if not plan["environment_status"].get("supported", False):
         raise core.AppError(plan["environment_status"].get("summary", "Scaling preflight did not pass."))
     helper_path = Path(plan["helper"])

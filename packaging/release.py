@@ -9,7 +9,7 @@ import tarfile
 import sys
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
-from unity_scale.core import VERSION
+from unity_scale.core import VERSION, APP_SLUG
 
 
 def selected(path:Path,include_binary:bool):
@@ -25,8 +25,8 @@ def build(label='linux-x86_64-glibc2.43'):
     records=[]
     for kind,binary in [('source',False),(label,True)]:
         if binary and not (ROOT/'libexec/xwayland-satellite').is_file():continue
-        name=f'unity-scale-{VERSION}-{kind}.tar.gz';output=dist/name
-        prefix=f'unity-scale-{VERSION}'
+        name=f'{APP_SLUG}-{VERSION}-{kind}.tar.gz';output=dist/name
+        prefix=f'{APP_SLUG}-{VERSION}'
         with tarfile.open(output,'w:gz') as archive:
             for p in sorted(ROOT.rglob('*')):
                 if selected(p,binary):archive.add(p,arcname=f'{prefix}/{p.relative_to(ROOT)}',recursive=False)

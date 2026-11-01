@@ -42,17 +42,18 @@ Wayland captures checked the actual app layout. Latest interface behavior is
 explicit scan, expandable Editor rows, one numeric percentage control, automatic
 saving, visible collapsed scale and pending-edit confirmation.
 
-The final complete standalone suite passed87 tests with no skips on the real
+The final complete standalone suite passed88 tests with no skips on the real
 graphical session (UNITY_SCALE_TEST_GUI=1 and GSETTINGS_BACKEND=memory).
 The GUI was also checked with the standalone non-presenting smoke command.
 The final disabled-label simplification passed all6 focused GUI-state tests.
 The generated native release was extracted into a fresh directory, installed to
 a separate prefix, executed through its installed entry point, and uninstalled
 successfully. The real installation and user settings remained independent.
-Visible Unity-related menu entries were verified as Unity Hub and Unity Scale.
+Visible Unity-related menu entries were checked during the original app
+validation. Repeat this check after changing desktop-entry branding.
 Unit tests are not substitutes for multi-machine graphical validation. Fake Editor
 fixtures test process and restore behavior without changing real installations.
-The first public [GitHub Actions build](https://github.com/FardinHaque70/unity-scale/actions/runs/41332053150)
+The first public [GitHub Actions build](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/actions/runs/41332053150)
 passed on Ubuntu24.04: the locked bridge build/tests,87 Python/GTK tests under
 Xvfb, standalone GTK smoke, desktop-entry validation, package creation and artifact
 upload all completed successfully. This is a clean build/GUI test result, not

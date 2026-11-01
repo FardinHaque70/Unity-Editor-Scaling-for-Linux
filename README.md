@@ -1,13 +1,15 @@
-# Unity Scale
+<img src="resources/branding/penguin-unity-v1.png" width="128" alt="Unity Editor UI Scalar for Linux icon">
+
+# Unity Editor UI Scalar for Linux
 
 Comfortable Unity Editor scaling on **KDE Wayland**.
 
 On a high-resolution Linux display, Unity can be too small to use comfortably.
 Common scaling workarounds can also leave menus, cursors, popups and docked
-windows at inconsistent sizes. Unity Scale provides an Editor-wide percentage
+windows at inconsistent sizes. This app provides an Editor-wide percentage
 control and a dedicated display bridge that addresses these problems together.
 
-![Unity Scale settings window](docs/screenshots/main.png)
+![Unity Editor UI Scalar for Linux settings window](docs/screenshots/main.png)
 
 **0.1.0-beta.1 · KDE Wayland · x86_64**
 
@@ -32,7 +34,8 @@ From an extracted release, or a checkout with the bridge built:
 ./install.sh
 ```
 
-Installation is user-local. Open **Unity Scale** from your application menu.
+Installation is user-local. Open **Unity Editor UI Scalar for Linux** from your
+application menu.
 
 Requires Python 3.10+, GTK 4.10+, libadwaita 1.4+, Xwayland 23.1+, and an x86_64
 KDE Wayland session. **The current native helper requires glibc 2.43.** On older
@@ -46,13 +49,13 @@ distributions, build the bridge locally before installation. See
    Valid changes save automatically.
 3. **Close and reopen Unity through Unity Hub** to apply the setting.
 
-Running Editors do not change immediately. Unity Scale can be closed while Unity
+Running Editors do not change immediately. You can close the app while Unity
 runs. **Turn off Override scale before updating or uninstalling an Editor in Hub.**
 See [integration and restoration](docs/INTEGRATION.md).
 
 ## Beta status and documentation
 
-Local validation includes 87 application tests, 109 bridge tests, physical scale
+Local validation includes 88 application tests, 109 bridge tests, physical scale
 measurements, menus, cursor consistency, input and docking. Broader GPU,
 mixed-DPI and compositor testing remains outstanding; see the
 [validation record](docs/VALIDATION.md) and [architecture](docs/ARCHITECTURE.md).

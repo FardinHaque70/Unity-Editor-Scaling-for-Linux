@@ -13,6 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_ID = 'io.github.unityscale.UnityScale'
+APP_NAME = 'Unity Editor UI Scalar for Linux'
 MARKER = 'UNITY_SCALE_INSTALL_V1'
 PAYLOAD_DIRS = ('unity_scale', 'bin', 'libexec', 'resources', 'bridge', 'docs', 'packaging')
 PAYLOAD_FILES = ('README.md', 'LICENSE', 'NOTICE', 'CHANGELOG.md', 'pyproject.toml', 'install.sh', 'uninstall.sh')
@@ -195,7 +196,7 @@ def install(prefix, *, skip_dependency_check=False):
     if prefix == Path.home()/'.local' and shutil.which('kbuildsycoca6'):
         try:subprocess.run(['kbuildsycoca6','--noincremental'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
         except (OSError,subprocess.SubprocessError):pass
-    print(f'Installed Unity Scale. Open it from your application menu.\nCommand: {launcher}\nUninstall: {destination}/uninstall.sh')
+    print(f'Installed {APP_NAME}. Open it from your application menu.\nCommand: {launcher}\nUninstall: {destination}/uninstall.sh')
     return destination
 
 
@@ -225,7 +226,7 @@ def uninstall(prefix):
     for path in _external_paths(prefix):
         if path.is_file():path.unlink()
     shutil.rmtree(destination)
-    print('Unity Scale uninstalled. Editor executables restored. Preferences and logs retained in your XDG directories.')
+    print(f'{APP_NAME} uninstalled. Editor executables restored. Preferences and logs retained in your XDG directories.')
 
 
 def main():
@@ -240,6 +241,6 @@ def main():
         else:install(prefix,skip_dependency_check=args.skip_dependency_check)
         return 0
     except (RuntimeError,OSError,ValueError) as exc:
-        print('Unity Scale installer: '+str(exc),file=sys.stderr);return 1
+        print(APP_NAME+' installer: '+str(exc),file=sys.stderr);return 1
 
 if __name__=='__main__':raise SystemExit(main())

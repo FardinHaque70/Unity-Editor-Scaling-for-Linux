@@ -86,7 +86,7 @@ def _write_json(path: Path, value: dict, *, exclusive: bool = False) -> None:
 
 def _read_manifest(editor: Path, manifest: Path) -> dict:
     if not _regular(manifest) or manifest.stat().st_size > 16384:
-        raise AppError("The Unity Scale integration record is not a regular, valid file.")
+        raise AppError("The scaling integration record is not a regular, valid file.")
     try:
         value = json.loads(manifest.read_text())
         valid = (isinstance(value, dict) and value.get("owner") == _OWNER
@@ -105,7 +105,7 @@ def _read_manifest(editor: Path, manifest: Path) -> dict:
             raise ValueError("unrecognized integration record")
         return value
     except (ValueError, TypeError, KeyError) as exc:
-        raise AppError("The Unity Scale integration record is invalid. The Editor was left untouched.") from exc
+        raise AppError("The scaling integration record is invalid. The Editor was left untouched.") from exc
 
 
 @contextmanager
@@ -232,21 +232,21 @@ def enable(editor_path: str | Path, *, entrypoint: str | Path | None = None) -> 
         editor, backup, manifest = _paths(editor_path)
         entry = Path(entrypoint).expanduser().absolute() if entrypoint else ROOT / "bin/unity-scale"
         if entry == editor or entry == backup:
-            raise AppError("The Unity Scale entry point cannot be the Editor executable.")
+            raise AppError("The scaling app entry point cannot be the Editor executable.")
         with _lock(editor):
             current = _status(editor, backup, manifest)
             if current["enabled"]:
                 existing = _read_manifest(editor, manifest)
                 if entrypoint is not None and str(entry) != existing["entrypoint"]:
-                    raise AppError("This Editor is enabled through another Unity Scale installation. Disable it before enabling it through this installation.")
+                    raise AppError("This Editor is enabled through another installation of this app. Disable it before enabling it through this installation.")
                 fresh = _wrapper(editor, backup, Path(existing["entrypoint"]))
                 if hashlib.sha256(fresh).hexdigest() != existing["wrapper_sha256"]:
-                    raise AppError("This Editor uses an older Unity Scale launcher. Disable it and enable it again to update the launcher safely.")
+                    raise AppError("This Editor uses an older scaling launcher. Disable it and enable it again to update the launcher safely.")
                 return current
             if not current["can_enable"]:
                 raise AppError(current["detail"])
             if not entry.is_file() or not os.access(entry, os.X_OK):
-                raise AppError("Install Unity Scale before enabling Unity Hub integration.")
+                raise AppError("Install this app before enabling Unity Hub integration.")
             original_stat = editor.stat()
             content = _wrapper(editor, backup, entry)
             record = {"owner": _OWNER, "schema_version": _SCHEMA,

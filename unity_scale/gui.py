@@ -1,4 +1,4 @@
-"""Native, Editor-centric GTK interface for Unity Scale.
+"""Native, Editor-centric GTK interface for Unity Editor scaling.
 
 Discovery, integration, and environment checks run outside the GTK main loop.
 The smoke test constructs the complete window using in-memory fixtures, without
@@ -368,12 +368,14 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         toolbar = Adw.ToolbarView()
         self.toasts.set_child(toolbar)
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title=core.APP_NAME))
+        self.header_title = Adw.WindowTitle(title=core.APP_NAME)
+        self.header_title.set_tooltip_text(core.APP_NAME)
+        header.set_title_widget(self.header_title)
         self.spinner = Gtk.Spinner()
         header.pack_start(self.spinner)
         menu = Gio.Menu()
         menu.append("Diagnostics", "app.diagnostics")
-        menu.append("About Unity Scale", "app.about")
+        menu.append(f"About {core.APP_NAME}", "app.about")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu))
         repository_url = getattr(core, "REPOSITORY_URL", "")
         self.github_button = Gtk.LinkButton(label="GitHub", uri=repository_url or "about:blank")
@@ -567,7 +569,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         detail = row.integration.get("detail", "")
         body = f"{row.editor.path}\n\n{detail}"
         if row.integration.get("enabled"):
-            body += "\n\nThe Editor launch path uses the Unity Scale wrapper. Its original executable is kept as a verified backup. No new Unity shortcut is created."
+            body += "\n\nThe Editor launch path uses this app’s wrapper. Its original executable is kept as a verified backup. No new Unity shortcut is created."
         dialog = Adw.MessageDialog(transient_for=self, modal=True, heading=editor_title(row.editor), body=body)
         dialog.add_response("close", "Close")
         dialog.present()
@@ -599,7 +601,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
 
     def error(self, error):
         dialog = Adw.MessageDialog(transient_for=self, modal=True,
-                                   heading="Unity Scale couldn’t complete that action", body=str(error))
+                                   heading=f"{core.APP_NAME} couldn’t complete that action", body=str(error))
         dialog.add_response("close", "Close")
         dialog.present()
 
@@ -642,7 +644,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
 
     def about(self):
         dialog = Adw.AboutWindow(transient_for=self, modal=True, application_name=core.APP_NAME,
-            application_icon=core.APP_ID, version=core.VERSION, developer_name="Unity Scale contributors",
+            application_icon=core.APP_ID, version=core.VERSION, developer_name="Fardin Haque and contributors",
             comments="Independent Unity Editor scaling for Linux.\n\nEnabling integration wraps the selected Editor’s launch path and keeps the original executable as a verified backup. No new Unity shortcut is created.")
         dialog.add_credit_section("Built with", ["GTK and libadwaita", "xwayland-satellite · MPL-2.0"])
         dialog.present()
@@ -688,6 +690,8 @@ class UnityScaleApplication(Adw.Application):
         try:
             window = self.window
             assert len(window.rows) == 1
+            assert window.get_title() == core.APP_NAME
+            assert window.header_title.get_title() == core.APP_NAME
             assert window.add_button.get_label() == "Add Editor…"
             assert isinstance(window.github_button, Gtk.LinkButton)
             assert window.github_button.get_uri() == (getattr(core, "REPOSITORY_URL", "") or "about:blank")
@@ -716,7 +720,7 @@ class UnityScaleApplication(Adw.Application):
             assert not row.state.pending
             assert row.get_subtitle() == "Override off"
             assert not window.get_visible()
-            print("Unity Scale GTK smoke test passed (no windows shown, no settings or Editor changed).")
+            print(f"{core.APP_NAME} GTK smoke test passed (no windows shown, no settings or Editor changed).")
         except Exception as exc:
             self.startup_error = exc
         finally:
@@ -730,12 +734,12 @@ def main(argv=None):
     smoke_test = "--smoke-test" in arguments
     arguments = [arg for arg in arguments if arg != "--smoke-test"]
     if not Gtk.init_check():
-        print("Unity Scale needs a graphical desktop. Use the CLI for command-line operations.", file=sys.stderr)
+        print(f"{core.APP_NAME} needs a graphical desktop. Use the CLI for command-line operations.", file=sys.stderr)
         return 2
     app = UnityScaleApplication(smoke_test=smoke_test)
     result = app.run(["unity-scale", *arguments])
     if app.startup_error:
-        print(f"Unity Scale: {app.startup_error}", file=sys.stderr)
+        print(f"{core.APP_NAME}: {app.startup_error}", file=sys.stderr)
         return 1
     return result
 

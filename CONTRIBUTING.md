@@ -1,4 +1,4 @@
-# Contributing
+# Contributing to Unity Editor UI Scalar for Linux
 
 This beta targets KDE Wayland. Reports from other GPUs, Unity versions and mixed-DPI
 setups are welcome; distinguish tested behavior from proposed compatibility.

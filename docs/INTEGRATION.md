@@ -1,7 +1,7 @@
 # Editor-wide launch integration
 
-Unity Scale works at the Editor installation, not in a Unity project. A profile
-is shared by all projects opened with the selected Editor version. No project
+Unity Editor UI Scalar for Linux applies settings to an installed Editor.
+A profile is shared by all projects opened with that Editor version. No project
 scripts, packages or settings are installed.
 
 ## What Override scale changes
@@ -16,10 +16,11 @@ Unity Hub continues launching its existing Editor path. The wrapper forwards its
 arguments through the scaling runner. License/version/headless invocations bypass
 scaling. If the application entry point disappears, the wrapper can fall back to
 the preserved original. It does not retry Unity after a runner failure, avoiding
-duplicate Editors. Closing Unity Scale does not terminate a running Editor.
+duplicate Editors. Closing the app does not terminate a running Editor.
 
 **This does not create a separate scaled-Unity shortcut.** The installer creates
-only a Unity Scale settings-app menu entry. The original Editor launch path is
+only a **Unity Editor UI Scalar for Linux** settings-app menu entry. The original
+Editor launch path is
 wrapped while enabled; disabling restores the original file. The interface must
 not describe this as leaving the original launch path unchanged.
 
@@ -35,7 +36,7 @@ The app never modifies Hub's databases, download configuration or modules.
 System-owned Editor installations must be managed by their administrator; the
 app does not run sudo or make such an installation writable.
 
-Uninstalling Unity Scale first restores its enabled Editor integrations. A
+Uninstalling the app first restores its enabled Editor integrations. A
 conflict stops the uninstall so the app and backups remain available for repair.
 Configuration and logs are retained. If an original backup was changed or lost,
 recover the Editor from your official installation rather than forcing a restore.

@@ -8,7 +8,7 @@
    native payload tarballs, SHA256SUMS and a checksum-pinned local Arch recipe are
    generated in dist/. Test installation/uninstallation from the extracted tarball.
 4. Publish reviewed source and release artifacts at
-   https://github.com/FardinHaque70/unity-scale with the compatibility scope.
+   https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux with the compatibility scope.
    Update the app URL if the repository moves; keep attribution and source available.
 5. Before AUR submission, replace its local source reference with that release URL
    and keep the exact checksum. No AUR package has been submitted yet.
@@ -26,4 +26,4 @@ and AI policies, split general changes into focused commits and get independent
 human review. All current source changes were AI-assisted; the local multi-agent
 reviews are not represented as independent human review. No issue, public
 post or upstream PR is sent automatically by this application. The public source
-repository is https://github.com/FardinHaque70/unity-scale.
+repository is https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux.
