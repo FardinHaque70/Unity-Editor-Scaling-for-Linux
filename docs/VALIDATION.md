@@ -52,7 +52,11 @@ successfully. The real installation and user settings remained independent.
 Visible Unity-related menu entries were verified as Unity Hub and Unity Scale.
 Unit tests are not substitutes for multi-machine graphical validation. Fake Editor
 fixtures test process and restore behavior without changing real installations.
-The release CI workflow is prepared locally; no external CI run is claimed.
+The first public [GitHub Actions build](https://github.com/FardinHaque70/unity-scale/actions/runs/41332053150)
+passed on Ubuntu24.04: the locked bridge build/tests,87 Python/GTK tests under
+Xvfb, standalone GTK smoke, desktop-entry validation, package creation and artifact
+upload all completed successfully. This is a clean build/GUI test result, not
+physical KDE/GPU/mixed-monitor validation on Ubuntu.
 
 ## Release scope
 
