@@ -1,4 +1,14 @@
 {
-  "runtime-x86_64": {"url":"https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64","sha256":"617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46"},
-  "appimagetool": {"url":"https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage","sha256":"e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03"}
+  "runtime-x86_64": {
+    "url": "https://api.github.com/repos/AppImage/type2-runtime/releases/assets/657374641",
+    "sha256": "617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46",
+    "browser_download_url": "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64",
+    "asset_id": 657374641
+  },
+  "appimagetool": {
+    "url": "https://api.github.com/repos/AppImage/appimagetool/releases/assets/715388534",
+    "sha256": "e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03",
+    "browser_download_url": "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage",
+    "asset_id": 715388534
+  }
 }

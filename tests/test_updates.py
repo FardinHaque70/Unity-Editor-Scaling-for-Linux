@@ -90,6 +90,43 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(updates._network_url('http://github.com/a'))
         self.assertFalse(updates._network_url('https://github.com.evil.example/a'))
 
+    def test_official_immutable_api_assets_are_preferred_without_authentication(self):
+        release, values = fixture()
+        for index, asset in enumerate(release['assets'], start=1):
+            asset['url'] = 'https://api.github.com/repos/' + updates.REPOSITORY + '/releases/assets/' + str(index)
+            values[asset['url']] = values[asset['browser_download_url']]
+            del values[asset['browser_download_url']]
+        values[updates.API + '?per_page=100&page=1'] = json.dumps([release]).encode()
+        transport = Transport(values)
+        selected = updates.check(current='0.4.0-rc.1', transport=transport, verifier=lambda *_:None)
+        self.assertEqual(selected.url, release['assets'][0]['url'])
+        self.assertEqual(transport.requested[1:], [release['assets'][1]['url'], release['assets'][2]['url']])
+        with patch('urllib.request.build_opener') as opener:
+            updates.GitHubTransport().open(selected.url)
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header('Accept'), 'application/octet-stream')
+            self.assertIsNone(request.get_header('Authorization'))
+            updates.GitHubTransport().open(updates.API + '?per_page=100&page=1')
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header('Accept'), 'application/vnd.github+json')
+
+    def test_api_asset_urls_are_exact_and_browser_identity_remains_required(self):
+        valid = 'https://api.github.com/repos/' + updates.REPOSITORY + '/releases/assets/42'
+        self.assertTrue(updates.api_asset_url(valid));self.assertTrue(updates._network_url(valid))
+        for url in (valid + '?download=1', valid + '#x', valid + '/extra', valid.replace('/42', '/0'),
+                    valid.replace('/42', '/042'), valid.replace(updates.REPOSITORY, 'other/repository'),
+                    valid.replace('api.github.com', 'api.github.com.evil.example')):
+            with self.subTest(url=url):
+                self.assertFalse(updates.api_asset_url(url));self.assertFalse(updates._network_url(url))
+                release, values = fixture()
+                release['assets'][0]['url'] = url
+                values[updates.API + '?per_page=100&page=1'] = json.dumps([release]).encode()
+                with self.assertRaises(updates.UpdateError):self.check(values)
+        release, values = fixture()
+        release['assets'][0].update(url=valid, browser_download_url='https://evil.example/app.AppImage')
+        values[updates.API + '?per_page=100&page=1'] = json.dumps([release]).encode()
+        with self.assertRaises(updates.UpdateError):self.check(values)
+
     def test_verified_stage_and_cleanup_on_tamper_cancel(self):
         _, values = fixture()
         release = self.check(values)

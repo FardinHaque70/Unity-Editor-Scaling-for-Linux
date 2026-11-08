@@ -24,7 +24,7 @@ def main():
             try:
                 sha = hashlib.sha256()
                 count = 0
-                request = urllib.request.Request(entry['url'], headers={'User-Agent': 'Unity-Editor-Scaling-CI'})
+                request = urllib.request.Request(entry['url'], headers={'User-Agent': 'Unity-Editor-Scaling-CI', 'Accept': 'application/octet-stream'})
                 with urllib.request.urlopen(request, timeout=30) as response, temporary.open('wb') as output:
                     while True:
                         chunk = response.read(256 * 1024)

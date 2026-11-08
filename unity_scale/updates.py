@@ -55,12 +55,21 @@ def asset_url(url):
             and len(parts.path.split('/')) == 7)
 
 
+def api_asset_url(url):
+    if not isinstance(url, str):
+        return False
+    parts = urllib.parse.urlsplit(url)
+    return (parts.scheme == 'https' and parts.netloc == 'api.github.com'
+            and not parts.query and not parts.fragment
+            and re.fullmatch('/repos/' + re.escape(REPOSITORY) + '/releases/assets/[1-9][0-9]*', parts.path) is not None)
+
+
 def _network_url(url):
     p = urllib.parse.urlsplit(url)
     return p.scheme == 'https' and not p.username and not p.password and (p.netloc in {
         'release-assets.githubusercontent.com', 'objects.githubusercontent.com'} or
         (p.netloc == 'github.com' and asset_url(url)) or
-        (p.netloc == 'api.github.com' and p.path == '/repos/' + REPOSITORY + '/releases'))
+        (p.netloc == 'api.github.com' and p.path == '/repos/' + REPOSITORY + '/releases') or api_asset_url(url))
 
 
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -76,7 +85,7 @@ class GitHubTransport:
         if not _network_url(url):
             raise UpdateError('Refusing a release URL outside GitHub.')
         request = urllib.request.Request(url, headers={'User-Agent': 'Unity-Editor-Scaling/' + core.VERSION,
-            'Accept': 'application/vnd.github+json' if url.startswith(API) else 'application/octet-stream'})
+            'Accept': 'application/vnd.github+json' if urllib.parse.urlsplit(url).path == '/repos/' + REPOSITORY + '/releases' else 'application/octet-stream'})
         try:
             return urllib.request.build_opener(_SafeRedirect()).open(request, timeout=TIMEOUT)
         except urllib.error.HTTPError as exc:
@@ -186,7 +195,14 @@ def check(*, current=None, transport=None, cancel=None, verifier=None):
         if name in (FILENAME, 'release.json', 'release.json.sig'):
             if name in assets or not asset_url(url) or urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit('/', 1)[1]) != name:
                 raise UpdateError('The release contains invalid asset URLs.')
-            assets[name] = url
+            # GitHub's immutable asset API avoids the browser download path,
+            # which can fail behind otherwise working GitHub HTTPS gateways.
+            # Both metadata identities stay restricted to this repository; the
+            # payload is still accepted only after signature/hash verification.
+            api_url = asset.get('url')
+            if api_url is not None and not api_asset_url(api_url):
+                raise UpdateError('The release contains an invalid API asset URL.')
+            assets[name] = api_url or url
     if set(assets) != {FILENAME, 'release.json', 'release.json.sig'}:
         raise UpdateError('This release is missing its signed update assets.')
     manifest = _bytes(transport, assets['release.json'], 16384, cancel)

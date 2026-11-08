@@ -5,6 +5,7 @@ project=$(cd -- "$(dirname -- "$0")/.." && pwd)
 work=${RUNNER_TEMP:-${TMPDIR:-/tmp}}/unity-appimage-build
 rm -rf -- "$work"
 mkdir -p "$work" "$project/dist"
+python3 "$project/packaging/fetch_locked.py" "$project/packaging/tools.lock.json" "$work"
 appdir="$work/AppDir"
 root="$appdir/usr/share/unity-editor-scaling"
 mkdir -p "$root" "$appdir/usr/bin" "$appdir/usr/lib/python3.10/site-packages" "$appdir/usr/share/glib-2.0/schemas" "$work/sources"
@@ -87,7 +88,6 @@ Categories=Development;
 Terminal=false
 StartupWMClass=io.github.unityscale.UnityScale
 EOF
-python3 "$project/packaging/fetch_locked.py" "$project/packaging/tools.lock.json" "$work"
 
 # Native .so and ELF hashes in the prebuilt manifest must describe shipped bytes.
 python3 - "$root/native/prebuilt" <<'PY'
