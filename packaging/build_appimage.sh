@@ -63,10 +63,12 @@ cp -a /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-sv
 cp -L /usr/bin/gdk-pixbuf-query-loaders "$appdir/usr/bin/" 2>/dev/null || cp -L /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders "$appdir/usr/bin/"
 cp -a /usr/share/glib-2.0/schemas/*.xml "$appdir/usr/share/glib-2.0/schemas/"
 "$prefix/bin/glib-compile-schemas" "$appdir/usr/share/glib-2.0/schemas"
+# Keep runtime entry points only; GNOME code generators and test tools belong
+# in the ephemeral builder, not the distributed application.
+find "$appdir/usr/bin" -mindepth 1 -maxdepth 1 ! -name python3.10 ! -name gtk4-broadwayd ! -name gdk-pixbuf-query-loaders -delete
+rm -rf "$appdir/usr/lib/gobject-introspection" "$appdir/usr/share/gir-1.0"
 python3 "$project/packaging/collect_runtime.py" "$appdir"
 python3 "$project/packaging/collect_licenses.py" "$appdir" "$work/sources" "$project"
-rm -rf "$appdir/usr/lib/gobject-introspection" "$appdir/usr/share/gir-1.0"
-rm -f "$appdir/usr/bin/"g-ir-*
 find "$appdir" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$appdir" -type f \( -name '*.a' -o -name '*.la' -o -name '*.pyc' \) -delete
 rm -rf "$appdir/usr/include" "$appdir/usr/lib/pkgconfig" "$appdir/usr/share/doc" "$appdir/usr/share/man" "$appdir/usr/lib/python3.10/test" "$appdir/usr/lib/python3.10/idlelib" "$appdir/usr/lib/python3.10/ensurepip" "$appdir/usr/share/gtk-doc"

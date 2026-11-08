@@ -56,12 +56,23 @@ def installed_sources(sources, source_lock):
 
 
 def package_owner(path):
-    found = subprocess.run(['dpkg-query', '--search', str(path)], text=True, capture_output=True)
-    for line in found.stdout.splitlines():
-        if ': ' in line:
-            package, owned = line.rsplit(': ', 1)
-            if owned == str(path):
-                return package
+    paths = [path]
+    # Ubuntu's merged-/usr filesystem can expose /usr/lib/foo while dpkg
+    # records /lib/foo. Only consider aliases proven to be the same file.
+    for prefix, replacement in (('/usr/lib/', '/lib/'), ('/lib/', '/usr/lib/'),
+                                ('/usr/bin/', '/bin/'), ('/bin/', '/usr/bin/'),
+                                ('/usr/sbin/', '/sbin/'), ('/sbin/', '/usr/sbin/')):
+        if str(path).startswith(prefix):
+            alias = Path(replacement + str(path)[len(prefix):])
+            if alias.is_file() and alias.samefile(path):
+                paths.append(alias)
+    for candidate in paths:
+        found = subprocess.run(['dpkg-query', '--search', str(candidate)], text=True, capture_output=True)
+        for line in found.stdout.splitlines():
+            if ': ' in line:
+                package, owned = line.rsplit(': ', 1)
+                if owned == str(candidate):
+                    return package
     raise RuntimeError('No Ubuntu package owns copied runtime: ' + str(path))
 
 
@@ -81,12 +92,16 @@ def host_candidates(relative):
     values = [Path('/') / relative]
     if relative.parts[:2] == ('usr', 'lib'):
         values += [Path('/usr/lib/x86_64-linux-gnu') / relative.name,
-                   Path('/lib/x86_64-linux-gnu') / relative.name]
+                   Path('/lib/x86_64-linux-gnu') / relative.name,
+                   Path('/usr/lib/x86_64-linux-gnu').joinpath(*relative.parts[2:]),
+                   Path('/lib/x86_64-linux-gnu').joinpath(*relative.parts[2:])]
     if relative.parts[:3] == ('usr', 'lib', 'girepository-1.0'):
         values.append(Path('/usr/lib/x86_64-linux-gnu/girepository-1.0') / relative.name)
     if 'site-packages' in relative.parts:
         index = relative.parts.index('site-packages')
         values.append(Path('/usr/lib/python3/dist-packages').joinpath(*relative.parts[index + 1:]))
+    if relative == Path('usr/bin/gdk-pixbuf-query-loaders'):
+        values.append(Path('/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders'))
     return list(dict.fromkeys(values))
 
 
