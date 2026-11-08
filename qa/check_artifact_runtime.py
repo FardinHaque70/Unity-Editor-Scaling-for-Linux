@@ -83,7 +83,16 @@ def main():
             isolated = json_output(run([moved, '--appimage-extract-and-run', '--self-test'], cwd=poison))
             assert isolated['healthy'] and not sentinel.exists()
             result['checks'].append('isolated imports from poisoned CWD and Python user site')
-            assert not any(home.iterdir()), 'Self-test wrote user configuration or installed itself'
+            # Fontconfig legitimately creates its normal XDG font cache while
+            # loading fonts. Configuration, app state, desktop/CLI integration
+            # and every other cache remain forbidden during --self-test.
+            font_cache = home / 'cache/fontconfig'
+            unexpected = [p for p in home.rglob('*')
+                          if p not in (home / 'cache', font_cache) and not p.is_relative_to(font_cache)]
+            assert not unexpected, 'Self-test changed user installation/configuration: ' + repr(unexpected)
+            font_cache_files = [p for p in font_cache.rglob('*') if p.is_file()]
+            result['self_test_font_cache'] = dict(files=len(font_cache_files),
+                bytes=sum(p.stat().st_size for p in font_cache_files))
             run([moved, '--appimage-extract'])
             apprun = root / 'squashfs-root/AppRun'
             assert json_output(run([apprun, '--self-test']))['healthy']
