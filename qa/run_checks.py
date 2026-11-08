@@ -22,10 +22,12 @@ APP = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=APP / "qa/output")
+    parser.add_argument("--appdir", type=Path, help="Test the extracted release runtime and application, rather than host GTK")
     args = parser.parse_args()
-    broadway = shutil.which("gtk4-broadwayd")
+    appdir = args.appdir.resolve() if args.appdir else None
+    broadway = str(appdir / "usr/bin/gtk4-broadwayd") if appdir else shutil.which("gtk4-broadwayd")
     dbus = shutil.which("dbus-run-session")
-    if not broadway or not dbus:
+    if not broadway or not Path(broadway).is_file() or not dbus:
         parser.error("gtk4-broadwayd and dbus-run-session are required")
     output = args.output.absolute()
     if output.exists() and any(output.iterdir()):
@@ -34,7 +36,8 @@ def main():
     processes, logs = [], []
     temporary_dir = None
     result = {"scope": "Actual GTK widgets on Broadway; software interactions and native Cairo snapshots",
-              "status": "FAIL", "desktop_windows": False, "unity_launched": False}
+              "status": "FAIL", "desktop_windows": False, "unity_launched": False,
+              "runtime": "shipped AppImage" if appdir else "host GTK"}
     try:
         temporary_dir = tempfile.TemporaryDirectory(prefix="unity-scale-gtk-qa-")
         temporary = temporary_dir.name
@@ -65,8 +68,29 @@ def main():
             processes.append(process)
             return process
 
+        python_command = ["/usr/bin/python3", str(APP / "qa/check_gtk.py")]
+        broadway_command = [broadway]
+        if appdir:
+            # Reuse the artifact's exact environment setup. Only the final
+            # program is substituted in a temporary wrapper; the AppDir and
+            # application files stay untouched. The worker imports packaged
+            # application code, while its inert fixtures live outside it.
+            original = (appdir / "AppRun").read_text()
+            final = '\"$APPDIR/usr/bin/python3.10\" -m unity_scale \"$@\"'
+            if original.count(final) != 1:
+                raise RuntimeError("Unknown AppRun contract for artifact QA")
+            env.update(APPDIR=str(appdir), QA_APP_ROOT=str(appdir / "usr/share/unity-editor-scaling"))
+            wrappers = []
+            for name, command in (("python", '\"$APPDIR/usr/bin/python3.10\" \"$@\"'),
+                                  ("broadway", '\"$APPDIR/usr/bin/gtk4-broadwayd\" \"$@\"')):
+                wrapper = root / (name + "-runtime.sh")
+                wrapper.write_text(original.replace(final, command))
+                wrapper.chmod(0o700)
+                wrappers.append(str(wrapper))
+            python_command = [wrappers[0], str(APP / "qa/check_gtk.py")]
+            broadway_command = [wrappers[1]]
         # A private HTTP Unix socket avoids a public/network listener entirely.
-        server = start([broadway, "-u", str(root / "http.socket"), ":7"], "broadway")
+        server = start([*broadway_command, "-u", str(root / "http.socket"), ":7"], "broadway")
         deadline = time.monotonic() + 5
         while not (root / "http.socket").exists():
             if server.poll() is not None:
@@ -74,14 +98,15 @@ def main():
             if time.monotonic() > deadline:
                 raise TimeoutError("Private Broadway startup timed out")
             time.sleep(0.03)
-        check = start([dbus, "--config-file=" + str(bus_config), "--", "/usr/bin/python3", str(APP / "qa/check_gtk.py")], "gtk-checks")
+        check = start([dbus, "--config-file=" + str(bus_config), "--", *python_command], "gtk-checks")
         result["gtk_exit_code"] = check.wait(timeout=75)
         if result["gtk_exit_code"]:
             raise RuntimeError("Actual GTK check failed; see gtk-checks.log and widgets.json")
-        unit = start(["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests", "-v"], "unit-tests")
-        result["unit_exit_code"] = unit.wait(timeout=30)
-        if result["unit_exit_code"]:
-            raise RuntimeError("Unit checks failed; see unit-tests.log")
+        if not appdir:
+            unit = start(["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests", "-v"], "unit-tests")
+            result["unit_exit_code"] = unit.wait(timeout=30)
+            if result["unit_exit_code"]:
+                raise RuntimeError("Unit checks failed; see unit-tests.log")
         result["status"] = "PASS"
     except Exception as exc:
         result["error"] = str(exc)

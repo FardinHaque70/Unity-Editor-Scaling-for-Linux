@@ -1,0 +1,54 @@
+{
+  "type2-runtime-LICENSE": {
+    "url": "https://raw.githubusercontent.com/AppImage/type2-runtime/fedfad51acc2860b2916a1eef32ba4a500ff31ef/LICENSE",
+    "sha256": "aa154fc9070614bbe7921f89db11efd1dba7a1f3a41685958110e2230f9c0ca1"
+  },
+  "type2-runtime-dependency-recipe": {
+    "url": "https://raw.githubusercontent.com/AppImage/type2-runtime/fedfad51acc2860b2916a1eef32ba4a500ff31ef/scripts/common/install-dependencies.sh",
+    "sha256": "e666c28019cb64a2c6c69d6e2a56db7fba024a2c92eb9489bfe4a3ea20a985a5"
+  },
+  "type2-runtime-libfuse-patch": {
+    "url": "https://raw.githubusercontent.com/AppImage/type2-runtime/fedfad51acc2860b2916a1eef32ba4a500ff31ef/patches/libfuse/mount.c.diff",
+    "sha256": "1c7fd9e26717545a476b226b083a9f9d05676c180edbd71a04bbd8a73599dc44"
+  },
+  "type2-runtime-Dockerfile": {
+    "url": "https://raw.githubusercontent.com/AppImage/type2-runtime/fedfad51acc2860b2916a1eef32ba4a500ff31ef/scripts/docker/Dockerfile",
+    "sha256": "e0a4abe81c1918516f7b6b9cdb9fdbb768f57c6fc392767537b45142aba45f74"
+  },
+  "type2-runtime-Makefile": {
+    "url": "https://raw.githubusercontent.com/AppImage/type2-runtime/fedfad51acc2860b2916a1eef32ba4a500ff31ef/src/runtime/Makefile",
+    "sha256": "71fd92c0e6c7c10ef5a932f5007e4dc61403ed471330e5841782b4233131b053"
+  },
+  "appimagetool-LICENSE": {
+    "url": "https://raw.githubusercontent.com/AppImage/appimagetool/11d54c9acc7f246df1398050a4b880314ac76862/LICENSE",
+    "sha256": "d726eb47bb96b7e7f8971a1431575ab4fd8780b5d2efde3552c70ef71469015f"
+  },
+  "libfuse-LGPL2": {
+    "url": "https://raw.githubusercontent.com/libfuse/libfuse/fuse-3.15.0/LGPL2.txt",
+    "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+  },
+  "squashfuse-LICENSE": {
+    "url": "https://raw.githubusercontent.com/vasi/squashfuse/0.5.2/LICENSE",
+    "sha256": "9e909cc8a8ba27b1a649c964cf9eda37de911f3138c2b64e6d2f01703904ac13"
+  },
+  "musl-COPYRIGHT": {
+    "url": "https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT?h=v1.2.5",
+    "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+  },
+  "zstd-LICENSE": {
+    "url": "https://raw.githubusercontent.com/facebook/zstd/v1.5.6/LICENSE",
+    "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+  },
+  "zstd-COPYING": {
+    "url": "https://raw.githubusercontent.com/facebook/zstd/v1.5.6/COPYING",
+    "sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505"
+  },
+  "zlib-LICENSE": {
+    "url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+    "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+  },
+  "mimalloc-LICENSE": {
+    "url": "https://raw.githubusercontent.com/microsoft/mimalloc/v2.1.7/LICENSE",
+    "sha256": "19c99805e7a44a34b297a75d1edea9985e300066dfc024d5c99d4236d4573b5d"
+  }
+}

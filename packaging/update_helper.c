@@ -111,10 +111,35 @@ static int payload(const unsigned char *m,size_t len,const char *image,const cha
     if(fd>=0)close(fd);
     EVP_MD_CTX_free(ctx);return ok;
 }
+/* Durable transaction metadata lets the next startup recover a process/power
+ * interruption. The candidate remains bound to its signed manifest; the old
+ * payload hash prevents restoration of an unrelated rollback file. */
+static int filehash(const char *path,char hex[65]){
+    int fd=open(path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(fd<0)return 0;
+    EVP_MD_CTX *ctx=EVP_MD_CTX_new();unsigned char buf[131072],hash[32];unsigned int count=0;
+    int ok=ctx&&EVP_DigestInit_ex(ctx,EVP_sha256(),NULL)==1;ssize_t n=0;
+    while(ok&&(n=read(fd,buf,sizeof(buf)))>0)ok=EVP_DigestUpdate(ctx,buf,(size_t)n)==1;
+    if(n<0||!ok||EVP_DigestFinal_ex(ctx,hash,&count)!=1||count!=32)ok=0;
+    if(ok)for(int i=0;i<32;i++)sprintf(hex+i*2,"%02x",hash[i]);
+    EVP_MD_CTX_free(ctx);close(fd);return ok;
+}
+static int transaction(const char *dir,const char *target,const char *manifest,const char *signature,
+                       const char *key,const char *version,const char *token,const char *newhash){
+    char oldhash[65],path[PATH_MAX],json[512];if(!filehash(target,oldhash))return 0;
+    const char *durable[]={manifest,signature,key};
+    for(int i=0;i<3;i++){int fd=open(durable[i],O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(fd<0)return 0;
+      int failed=fsync(fd);close(fd);if(failed)return 0;}
+    if(snprintf(path,sizeof(path),"%s/transaction.json",dir)>=(int)sizeof(path))return 0;
+    int n=snprintf(json,sizeof(json),"{\"schema\":1,\"old_sha256\":\"%s\",\"new_sha256\":\"%s\",\"version\":\"%s\",\"token\":\"%s\"}\n",oldhash,newhash,version,token);
+    if(n<0||n>=(int)sizeof(json))return 0;
+    int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(fd<0)return 0;
+    int ok=write(fd,json,(size_t)n)==n&&fsync(fd)==0;close(fd);return ok;
+}
 static int syncdir(const char *p){int fd=open(p,O_RDONLY|O_DIRECTORY|O_CLOEXEC);if(fd<0)return -1;int r=fsync(fd);close(fd);return r;}
 static void start_environment(void){
     const char *keys[]={"APPIMAGE","APPDIR","ARGV0","PYTHONHOME","PYTHONPATH","GI_TYPELIB_PATH",
-        "GIO_MODULE_DIR","GIO_EXTRA_MODULES","GTK_DATA_PREFIX","GSETTINGS_SCHEMA_DIR","SSL_CERT_FILE",NULL};
+        "GIO_MODULE_DIR","GIO_EXTRA_MODULES","GTK_DATA_PREFIX","GSETTINGS_SCHEMA_DIR","SSL_CERT_FILE",
+        "GDK_PIXBUF_MODULEDIR","GDK_PIXBUF_MODULE_FILE",NULL};
     for(int i=0;keys[i];i++)unsetenv(keys[i]);
     const char *names[]={"LD_LIBRARY_PATH","PATH","XDG_DATA_DIRS"};
     const char *saved[]={"UNITY_SCALE_HOST_LD_LIBRARY_PATH","UNITY_SCALE_HOST_PATH","UNITY_SCALE_HOST_XDG_DATA_DIRS"};
@@ -129,7 +154,7 @@ static pid_t launch(const char *image,const char *ack,const char *token){
       execl(image,image,"--install-user","--post-update",ack,token,(char*)NULL);_exit(127);}return p;
 }
 static void restore_launch(const char *image){pid_t p=fork();if(p==0){start_environment();execl(image,image,"--install-user","--recover-update",(char*)NULL);_exit(127);}}
-static void cleanup(const char *dir){const char *files[]={"new.AppImage","release.json","release.json.sig","public-key.pem","healthy","update-helper",NULL};char path[PATH_MAX];for(int i=0;files[i];i++){snprintf(path,sizeof(path),"%s/%s",dir,files[i]);unlink(path);}rmdir(dir);}
+static void cleanup(const char *dir){const char *files[]={"new.AppImage","release.json","release.json.sig","public-key.pem","healthy","update-helper","transaction.json",NULL};char path[PATH_MAX];for(int i=0;files[i];i++){snprintf(path,sizeof(path),"%s/%s",dir,files[i]);unlink(path);}rmdir(dir);}
 int main(int argc,char **argv){
     if(argc==5&&!strcmp(argv[1],"verify")){size_t len=0;unsigned char *m=verified(argv[2],argv[3],argv[4],&len);if(!m)return 1;free(m);return 0;}
     if(argc!=11||strcmp(argv[1],"apply"))return 2;
@@ -151,8 +176,11 @@ int main(int argc,char **argv){
     for(int n=0;n<1200&&kill((pid_t)parent,0)==0;n++)usleep(100000);
     if(kill((pid_t)parent,0)==0){cleanup(directory);return 1;}
     size_t len=0;unsigned char *m=verified(key,manifest,signature,&len);
-    int valid=m&&regular(target)&&regular(stage)&&payload(m,len,stage,version);free(m);
+    long long newsize=0;char newhash[65];
+    int valid=m&&regular(target)&&regular(stage)&&schema(m,len,version,&newsize,newhash)&&payload(m,len,stage,version);free(m);
     if(!valid){cleanup(directory);return 1;}
+    if(!transaction(directory,target,manifest,signature,key,version,token,newhash)||syncdir(directory)||syncdir(base)){
+      cleanup(directory);return 1;}
     struct stat old;if(lstat(rollback,&old)==0){cleanup(directory);return 1;}
     /* Preserve one old inode, then atomically replace the public image. */
     if(errno!=ENOENT||link(target,rollback)){cleanup(directory);return 1;}

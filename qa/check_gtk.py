@@ -12,7 +12,7 @@ import time
 import traceback
 
 faulthandler.enable()
-APP = Path(__file__).resolve().parents[1]
+APP = Path(os.environ.get("QA_APP_ROOT", Path(__file__).resolve().parents[1])).resolve()
 sys.path.insert(0, str(APP))
 if os.environ.get("GDK_BACKEND") != "broadway" or not os.environ.get("QA_STORE", "").startswith("/tmp/unity-scale-gtk-qa-"):
     raise SystemExit("Use qa/run_checks.py: isolated Broadway and temporary Store are required")

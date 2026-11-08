@@ -76,6 +76,7 @@ class UserInstallTests(unittest.TestCase):
         with patch('subprocess.run', side_effect=AssertionError('user must not compile')):
             result = self.install()
         self.assertEqual(result['connected_editors'], [str(self.public)])
+        self.assertEqual(result['version'], core.VERSION)
         original = backend.verified_original(self.public)
         self.assertEqual(backend._identity(original), self.identity)
         self.assertEqual(original.read_bytes(), self.original)
@@ -86,6 +87,91 @@ class UserInstallTests(unittest.TestCase):
         self.assertIn('io.github.unityscale.UnityScale', desktop.name)
         backend.restore(self.public)
         self.assertEqual(backend._identity(self.public), self.identity)
+
+    def _interrupt_promotion(self, point):
+        """A separate process dies without Python finally/exception rollback."""
+        pid = os.fork()
+        if pid == 0:
+            actual_bytes, actual_json = backend._atomic_bytes, user_install.atomic_json
+            actual_link = os.link
+            def link(source, destination, *args, **kwargs):
+                actual_link(source, destination, *args, **kwargs)
+                if point == 'original-linked' and Path(destination).name == backend.BACKUP_NAME:
+                    os._exit(71)
+            def write(path, *args):
+                actual_bytes(path, *args)
+                if str(path).endswith(point):
+                    os._exit(71)
+            def write_json(path, *args):
+                actual_json(path, *args)
+                if str(path).endswith(point):
+                    os._exit(71)
+            backend._atomic_bytes, user_install.atomic_json = write, write_json
+            os.link = link
+            self.install()
+            os._exit(72)
+        _, status = os.waitpid(pid, 0)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 71)
+        self.assertEqual(json.loads((self.store.state_dir / 'install-journal.json').read_text())['state'], 'prepared')
+
+    def test_power_failure_during_fresh_native_staging_recovers_original(self):
+        self._interrupt_promotion('/native-v2.so')
+        self.assertTrue(user_install.recover_install(self.store))
+        self.assertEqual(self.public.read_bytes(), self.original)
+        self.assertEqual(backend._identity(self.public), self.identity)
+        self.assertFalse((self.public.parent / backend.BACKUP_NAME).exists())
+        self.assertFalse((self.public.parent / backend.PACKAGE_NAME).exists())
+        self.assertFalse((self.store.data_dir / 'application.AppImage').exists())
+        self.assertFalse(user_install.recover_install(self.store))
+
+    def test_power_failure_after_original_hardlink_leaves_no_orphan_backup(self):
+        self._interrupt_promotion('original-linked')
+        self.assertTrue(self.public.samefile(self.public.parent / backend.BACKUP_NAME))
+        self.assertTrue(user_install.recover_install(self.store))
+        self.assertEqual(backend._identity(self.public), self.identity)
+        self.assertFalse((self.public.parent / backend.BACKUP_NAME).exists())
+
+    def test_power_failure_after_launcher_swap_recovers_v1_150(self):
+        self.legacy_connection()
+        old_public = self.public.read_bytes()
+        self._interrupt_promotion('/Editor/Unity')
+        self.assertTrue(user_install.recover_install(self.store))
+        self.assertEqual(self.public.read_bytes(), old_public)
+        self.assertEqual(backend._identity(backend.verified_original(self.public)), self.identity)
+        self.assertFalse((self.public.parent / backend.PACKAGE_NAME / 'activation.json').exists())
+        self.assertEqual(json.loads(user_install._legacy_settings(self.store).read_text())['editors'][str(self.public)]['ui_scale_percent'], 150)
+
+    def test_power_failure_after_receipt_preserves_old_application_and_preferences(self):
+        self.install()
+        image = self.store.data_dir / 'application.AppImage'
+        before_image, before_settings = image.read_bytes(), self.store.path.read_bytes()
+        self.image.write_bytes(self.image.read_bytes() + b'new revision')
+        self._interrupt_promotion('/installation.json')
+        self.assertTrue(user_install.recover_install(self.store))
+        self.assertEqual(image.read_bytes(), before_image)
+        self.assertEqual(self.store.path.read_bytes(), before_settings)
+        self.assertFalse(list(self.store.data_dir.glob('.application-staged-*')))
+        self.assertEqual(json.loads((self.store.state_dir / 'installation.json').read_text())['image_sha256'], backend.digest(image))
+
+    def test_interrupted_migration_refuses_foreign_launcher_before_recovery(self):
+        self._interrupt_promotion('/Editor/Unity')
+        self.public.write_bytes(b'foreign Editor upgrade')
+        with self.assertRaisesRegex(core.AppError, 'launcher changed'):
+            user_install.recover_install(self.store)
+        self.assertEqual(self.public.read_bytes(), b'foreign Editor upgrade')
+        self.assertTrue((self.public.parent / backend.BACKUP_NAME).exists())
+
+    def test_complete_uninstall_restores_original_and_retains_settings(self):
+        self.install()
+        self.store.set_profile(self.public, dict(ui_scale_percent=150, follow_desktop=False, render_scale=2, override_enabled=True))
+        with patch.object(user_install, '_app_closed'):
+            result = user_install.uninstall_user(self.store, editors=[self.public])
+        self.assertTrue(result['uninstalled'])
+        self.assertEqual(backend._identity(self.public), self.identity)
+        self.assertEqual(self.public.read_bytes(), self.original)
+        self.assertFalse((self.public.parent / backend.PACKAGE_NAME).exists())
+        self.assertFalse((self.store.data_dir / 'application.AppImage').exists())
+        self.assertEqual(self.store.get_profile(self.public)['ui_scale_percent'], 150)
 
     def test_v1_migration_preserves_150_profiles_extras_and_original_inode(self):
         self.legacy_connection()

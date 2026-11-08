@@ -40,13 +40,18 @@ PY
 build() { local name=$1; shift; local source; source=$(find "$work/sources" -mindepth 1 -maxdepth 1 -type d -name "$name-*" | head -1); meson setup "$work/build-$name" "$source" --prefix "$prefix" --libdir lib --buildtype release -Ddebug=false "$@"; ninja -C "$work/build-$name" -j2; ninja -C "$work/build-$name" install; }
 build glib -Dtests=false -Dinstalled_tests=false -Dgtk_doc=false -Dman=false -Dselinux=disabled -Dlibmount=disabled
 build gobject-introspection -Ddoctool=disabled
-build gtk -Dwayland-backend=false -Dx11-backend=true -Dbroadway-backend=true -Dmedia-gstreamer=disabled -Dprint-cups=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-testsuite=false -Dbuild-examples=false -Dbuild-demos=false -Ddocumentation=false
+build gtk -Dintrospection=enabled -Dwayland-backend=false -Dx11-backend=true -Dbroadway-backend=true -Dmedia-gstreamer=disabled -Dprint-cups=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-testsuite=false -Dbuild-examples=false -Dbuild-demos=false -Ddocumentation=false
 build libadwaita -Dtests=false -Dexamples=false -Dintrospection=enabled -Dvapi=false
 build pygobject -Dtests=false -Dpycairo=enabled
 # Use the Ubuntu22 Python ABI and its small GI bindings, against bundled GLib/GI.
 cp -L /usr/bin/python3.10 "$appdir/usr/bin/python3.10"
 cp -a /usr/lib/python3.10 "$appdir/usr/lib/"
 cp -a /usr/lib/python3/dist-packages/cairo "$appdir/usr/lib/python3.10/site-packages/"
+rm -rf "$appdir/usr/lib/python3.10"/config-*
+# GIR/typelib dependencies are loaded dynamically and cannot be found by ldd.
+for typelib in GdkPixbuf-2.0 Pango-1.0 PangoCairo-1.0 cairo-1.0 freetype2-2.0 HarfBuzz-0.0 Graphene-1.0; do
+  cp -L "/usr/lib/x86_64-linux-gnu/girepository-1.0/$typelib.typelib" "$appdir/usr/lib/girepository-1.0/"
+done
 cp -a "$project/unity_scale" "$root/"
 cp -a "$project/resources" "$root/"
 cp /etc/ssl/certs/ca-certificates.crt "$root/resources/ca-certificates.crt"
@@ -59,6 +64,9 @@ cp -L /usr/bin/gdk-pixbuf-query-loaders "$appdir/usr/bin/" 2>/dev/null || cp -L 
 cp -a /usr/share/glib-2.0/schemas/*.xml "$appdir/usr/share/glib-2.0/schemas/"
 "$prefix/bin/glib-compile-schemas" "$appdir/usr/share/glib-2.0/schemas"
 python3 "$project/packaging/collect_runtime.py" "$appdir"
+python3 "$project/packaging/collect_licenses.py" "$appdir" "$work/sources" "$project"
+rm -rf "$appdir/usr/lib/gobject-introspection" "$appdir/usr/share/gir-1.0"
+rm -f "$appdir/usr/bin/"g-ir-*
 find "$appdir" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$appdir" -type f \( -name '*.a' -o -name '*.la' -o -name '*.pyc' \) -delete
 rm -rf "$appdir/usr/include" "$appdir/usr/lib/pkgconfig" "$appdir/usr/share/doc" "$appdir/usr/share/man" "$appdir/usr/lib/python3.10/test" "$appdir/usr/lib/python3.10/idlelib" "$appdir/usr/lib/python3.10/ensurepip" "$appdir/usr/share/gtk-doc"

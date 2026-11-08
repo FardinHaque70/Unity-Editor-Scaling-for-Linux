@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import urllib.error
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
@@ -120,11 +121,40 @@ class UpdateTests(unittest.TestCase):
                                 progress=lambda *_: cancel.set())
             self.assertEqual(list(target.parent.iterdir()), [target])
 
+    def test_offline_and_rate_limit_errors_are_actionable(self):
+        for failure, message in ((urllib.error.URLError('offline'), 'connection'),
+                (urllib.error.HTTPError(updates.API, 403, 'rate limit', {}, None), 'rate limit'),
+                (urllib.error.HTTPError(updates.API, 429, 'rate limit', {}, None), 'rate limit')):
+            with self.subTest(failure=failure), patch('urllib.request.build_opener') as opener:
+                opener.return_value.open.side_effect = failure
+                with self.assertRaisesRegex(updates.UpdateError, message):
+                    updates.GitHubTransport().open(updates.API + '?per_page=100&page=1')
+
+    def test_interrupted_download_removes_partial_staging(self):
+        _, values = fixture()
+        release = self.check(values)
+        class Interrupted(io.BytesIO):
+            def read(self, _size=-1):
+                if self.tell():
+                    raise ConnectionResetError('connection dropped')
+                return super().read(4)
+        class BrokenTransport:
+            def open(self, _url):
+                return Interrupted(b'incomplete payload')
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'application.AppImage';target.write_bytes(b'old')
+            with self.assertRaises(ConnectionResetError):
+                updates.prepare(release, target=target, transport=BrokenTransport())
+            self.assertEqual(target.read_bytes(), b'old')
+            self.assertEqual(list(target.parent.iterdir()), [target])
+
 
 class BootstrapTests(unittest.TestCase):
     def test_initial_install_managed_noop_and_old_download_dispatch(self):
         from unity_scale.__main__ import bootstrap_appimage
-        with tempfile.TemporaryDirectory() as directory:
+        with patch('unity_scale.user_install.recover_install', return_value=False), \
+                patch('unity_scale.updates.recover_interrupted_update', return_value={'state': 'none'}), \
+                tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             data = base / 'data';state = base / 'state';data.mkdir();state.mkdir()
             store = SimpleNamespace(data_dir=data, state_dir=state)

@@ -1,14 +1,18 @@
 Unity Editor Scaling for Linux is an independent, unofficial application.
 Unity is a trademark of Unity Technologies. Unity Editor and Unity Hub are
-not included in this source distribution.
+not included in this source distribution or the AppImage.
 
 This application and its native startup scaling backend are distributed under
 the Mozilla Public License 2.0. See LICENSE and retain applicable source notices.
 
-Python, PyGObject, GTK, libadwaita, json-c, OpenSSL, Xwayland, and other system
-libraries are supplied separately by the user's distribution and remain under
-their respective licenses. No Xwayland bridge implementation is bundled here.
+The AppImage bundles Python, PyGObject, GTK, libadwaita and additional runtime
+libraries under their respective licenses. Native components include json-c
+and OpenSSL. The AppImage Type-2 runtime incorporates additional open-source
+components. See docs/THIRD_PARTY.md, the pinned build-input lockfiles, and the
+artifact's dependency inventory and license texts for corresponding sources
+and notices. Host graphics drivers, Unity's normal GTK3 runtime and the desktop's
+Xwayland are supplied separately. No private Xwayland bridge is bundled.
 
 Development used AI assistance. Automated checks and scoped local Unity trials
-are described in README.md; they do not constitute independent human review or
-universal compatibility, input, or performance validation.
+do not constitute independent human review or universal compatibility, input,
+or performance validation. See docs/VALIDATION.md and release-specific records.

@@ -10,7 +10,9 @@ Please [open an issue](https://github.com/FardinHaque70/unity-editor-ui-scalar-f
 
 ## Runtime evidence and limits
 
-Local development records for the current native source at **150%** include 30 physical target clicks with matching press/release counts, one context-menu selection, user-confirmed window resizing, Inspector scrolling and Scene navigation, captured Scene/Game/Inspector content through window recreation, and normal exit. Separate **160%** runs exercised repeated window creation, odd-size resizing, reload, rendered content, and sampled allocation/backing agreement. These are bounded observations on the target setup, not validation of every workflow or percentage.
+Local development records for the earlier `product-profile-v1` delivery at **150%** include 30 physical target clicks with matching press/release counts, one context-menu selection, user-confirmed window resizing, Inspector scrolling and Scene navigation, captured Scene/Game/Inspector content through window recreation, and normal exit. Separate **160%** runs exercised repeated window creation, odd-size resizing, reload, rendered content, and sampled allocation/backing agreement. These are bounded observations on the target setup, not validation of every workflow or percentage.
+
+The AppImage candidate introduces relocatable `product-profile-v2` activation and a bundled GUI runtime while retaining the scaling calculations. Earlier acceptance is useful regression evidence but does not establish acceptance of the newly packaged artifact. Release-specific records must identify the tested AppImage SHA-256, clean-host artifact checks, migration/update results, private Unity rendering/input checks and performance measurement limits. Publication remains pending those checks.
 
 Physical docking, mixed-DPI monitor transitions, other Unity builds, other compositors/renderers, heavy workloads, and performance or input/presentation latency have not been established by this validation. Resize stress also requests managed repaints, so it does not isolate the allocation watcher's contribution. The accepted 100–200% range is not a guarantee that every value works correctly.
 
@@ -24,4 +26,4 @@ From the source directory, run:
 /usr/bin/python3 -m unittest discover -s tests -v
 ```
 
-`qa/run_checks.py` exercises the settings UI on isolated GTK Broadway. The native package's checks use generated payloads, mock native callees, or a tiny non-Unity host; passing them does not prove Unity rendering or physical input. The installer verifies the bundled [native source manifest](../native/product/source-manifest.json).
+`qa/run_checks.py` exercises the settings UI on isolated GTK Broadway. The native package's checks use generated payloads, mock native callees, or a tiny non-Unity host; passing them does not prove Unity rendering or physical input. The builder verifies the [native source manifest](../native/product/source-manifest.json). End-user installation verifies the prebuilt runtime and its activation record without compiling native code.

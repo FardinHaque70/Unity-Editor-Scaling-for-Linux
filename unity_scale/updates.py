@@ -287,7 +287,8 @@ def host_environment():
     """Leave the old AppImage runtime before starting another executable."""
     environment = os.environ.copy()
     for key in ('APPIMAGE', 'APPDIR', 'ARGV0', 'PYTHONHOME', 'PYTHONPATH', 'GI_TYPELIB_PATH',
-                'GIO_MODULE_DIR', 'GIO_EXTRA_MODULES', 'GTK_DATA_PREFIX', 'GSETTINGS_SCHEMA_DIR', 'SSL_CERT_FILE'):
+                'GIO_MODULE_DIR', 'GIO_EXTRA_MODULES', 'GTK_DATA_PREFIX', 'GSETTINGS_SCHEMA_DIR', 'SSL_CERT_FILE',
+                'GDK_PIXBUF_MODULEDIR', 'GDK_PIXBUF_MODULE_FILE'):
         environment.pop(key, None)
     for key in ('LD_LIBRARY_PATH', 'PATH', 'XDG_DATA_DIRS'):
         saved = environment.pop('UNITY_SCALE_HOST_' + key, None)
@@ -296,3 +297,128 @@ def host_environment():
         elif key != 'PATH':
             environment.pop(key, None)
     return environment
+
+
+def _recovery_editors_closed(store):
+    # An interrupted native migration may have a temporarily incomplete receipt.
+    # Check executable inodes directly here; installation-journal recovery will
+    # verify/restore those bytes after the previous image has been selected.
+    from . import native_backend
+    from .user_install import _app_closed, _editors, migration_document
+    _app_closed(store)
+    document = migration_document(store)
+    for public in _editors(store, document):
+        for executable in native_backend.paths(public)[:2]:
+            if executable.is_file():
+                native_backend._running(executable)
+
+
+def recover_interrupted_update(*, store=None, execute=None, verifier=None, preflight=None):
+    """Recover a durable update transaction after helper/process/power failure.
+
+    The directory lock is shared with the native helper. A live helper owns
+    recovery until it exits; a stale transaction is never accepted on filenames
+    alone. Signature, payload hashes, ownership and the health token all bind the
+    decision. Editor/native migration recovery is performed by --install-user
+    after restoring the previous AppImage.
+    """
+    import fcntl
+    import stat
+    from .private_store import safe_root
+    from .native_backend import digest, _sync
+    store = store or core.Store()
+    target = safe_root(store.data_dir / 'application.AppImage')
+    if not target.parent.exists():
+        return {'state': 'none'}
+    rollback = target.with_name(target.name + '.rollback')
+    descriptor = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {'state': 'active'}
+        candidates = [p for p in target.parent.glob('.update-*') if (p / 'transaction.json').exists()]
+        if not candidates:
+            if rollback.exists():
+                raise UpdateError('An update rollback has no recovery record. Its files were preserved; repair the managed installation before updating.')
+            return {'state': 'none'}
+        if len(candidates) != 1:
+            raise UpdateError('Multiple update recovery records need inspection; no files were changed.')
+        directory = safe_root(candidates[0])
+        def owned(path, *, directory=False):
+            s = path.lstat()
+            kind = stat.S_ISDIR(s.st_mode) if directory else stat.S_ISREG(s.st_mode)
+            if not kind or s.st_uid != os.getuid() or s.st_mode & (0o077 if directory else 0o022):
+                raise UpdateError('Unsafe update recovery file; no files were changed.')
+        owned(directory, directory=True)
+        journal = directory / 'transaction.json'
+        owned(journal)
+        if journal.stat().st_size > 2048:
+            raise UpdateError('The update recovery record is oversized.')
+        value = _object(journal.read_bytes())
+        required = {'schema', 'old_sha256', 'new_sha256', 'version', 'token'}
+        if (not isinstance(value, dict) or set(value) != required or type(value['schema']) is not int or value['schema'] != 1
+                or any(not isinstance(value[k], str) or not re.fullmatch('[0-9a-f]{64}', value[k])
+                       for k in ('old_sha256', 'new_sha256', 'token'))):
+            raise UpdateError('The update recovery record is invalid.')
+        version_key(value['version'])
+        manifest = directory / 'release.json'
+        signature = directory / 'release.json.sig'
+        owned(manifest);owned(signature)
+        if manifest.stat().st_size > 16384 or signature.stat().st_size != 64:
+            raise UpdateError('The update recovery signature metadata is invalid.')
+        data = manifest.read_bytes()
+        (verifier or verify_signature)(data, signature.read_bytes())
+        signed = _object(data)
+        if (not isinstance(signed, dict) or set(signed) != {'schema', 'version', 'channel', 'architecture', 'filename', 'size', 'sha256'}
+                or type(signed['schema']) is not int or signed['schema'] != 1
+                or signed['version'] != value['version'] or signed['sha256'] != value['new_sha256']
+                or signed['channel'] != ('stable' if version_key(value['version'])[3] else 'prerelease')
+                or signed['architecture'] != 'x86_64' or signed['filename'] != FILENAME
+                or type(signed['size']) is not int or not 0 < signed['size'] <= MAX_IMAGE):
+            raise UpdateError('The signed update and recovery record do not match.')
+        owned(target)
+        current = digest(target)
+        if current not in (value['old_sha256'], value['new_sha256']):
+            raise UpdateError('The application changed during an interrupted update; all recovery files were preserved.')
+        if current == value['new_sha256'] and target.stat().st_size != signed['size']:
+            raise UpdateError('The update payload size changed; all recovery files were preserved.')
+        if rollback.exists():
+            owned(rollback)
+            if digest(rollback) != value['old_sha256']:
+                raise UpdateError('The rollback image does not match its recovery record.')
+        healthy = directory / 'healthy'
+        acknowledged = False
+        if healthy.exists():
+            owned(healthy)
+            acknowledged = healthy.stat().st_size == 64 and healthy.read_text() == value['token']
+        allowed = {'new.AppImage', 'release.json', 'release.json.sig', 'public-key.pem',
+                   'healthy', 'update-helper', 'transaction.json'}
+        if any(p.name not in allowed for p in directory.iterdir()):
+            raise UpdateError('Unexpected files in update recovery directory; all files were preserved.')
+        for p in directory.iterdir():
+            owned(p)
+        # A successful health ACK can survive before helper cleanup. A failed
+        # candidate must restore the previous image, with all Editors closed.
+        restore = current == value['new_sha256'] and not acknowledged
+        if restore:
+            if not rollback.exists():
+                raise UpdateError('The interrupted update has no verified rollback image.')
+            (preflight or _recovery_editors_closed)(store)
+            os.replace(rollback, target)
+            _sync(target.parent)
+        elif rollback.exists():
+            rollback.unlink()
+            _sync(target.parent)
+        for p in directory.iterdir():
+            p.unlink()
+        directory.rmdir()
+        _sync(target.parent)
+        if restore:
+            # Explicit installer startup restores the matching native bundle
+            # and integration after the executable swap. No Unity is launched.
+            (execute or os.execve)(str(target), [str(target), '--install-user', '--recover-update'], host_environment())
+            return {'state': 'restored'}
+        return {'state': 'committed' if acknowledged and current == value['new_sha256'] else 'cancelled'}
+    finally:
+        os.close(descriptor)

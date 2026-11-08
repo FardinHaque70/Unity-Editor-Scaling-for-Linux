@@ -1,12 +1,14 @@
 # How scaling works
 
-The installer adds the settings app under `~/.local/share/unity-editor-scaling-for-linux`, a `~/.local/bin/unity-scale` command, and an application-menu entry. Preferences live in the installed app's `sandbox/config/unity-scale/settings.json`, keyed by the Editor's canonical executable path. Projects using that Editor share its setting.
+The AppImage installs one managed image under `~/.local/share/unity-editor-scaling-for-linux`, a `~/.local/bin/unity-scale` command, and an application-menu entry. Schema-2 preferences live in `~/.config/unity-editor-scaling-for-linux/settings.json`, keyed by the Editor's canonical executable path. The standard absolute XDG directory overrides are respected. Projects using that Editor share its setting. Preferences are independent of both projects and AppImage mounts.
 
 Setup also connects detected, supported Editors, even when Custom scale is off. In each connected installation it:
 
 - Preserves the original executable as `Editor/.Unity.unity-scale-original`, beside its existing `Data` directory.
 - Replaces the usual `Editor/Unity` entry with a small compiled launcher, so existing Unity Hub launches enter that launcher.
-- Adds `Editor/.unity-editor-scaling/`, containing the native library, launcher copy, and ownership/restoration receipt.
+- Adds `Editor/.unity-editor-scaling/`, containing the prebuilt `native-v2.so`, `wrapper-v2` and schema-2 `activation.json`.
+
+The `product-profile-v2` runtime is relocatable across supported installations: installation-specific paths are validated from the activation record rather than compiled into the binary. The record binds the public Editor path, preserved original, settings file, owner, exact hashes and original file identity. Launcher and constructor checks refuse inconsistent, foreign or symlinked activation data. Original executable and instruction-byte guards still apply before hooks are installed. No compiler runs during end-user setup.
 
 **The original executable's bytes stay intact on disk. With Custom scale enabled, the native library patches selected Unity functions in the running process's memory.** These are changes to Unity's internal platform and rendering code, not a public Unity extension API.
 
@@ -31,3 +33,11 @@ With **Custom scale off**, Unity receives its inherited GTK/GDK environment and 
 ## Source
 
 The launch and runtime implementation starts in [launcher.c](../native/launcher.c), [boot.c](../native/product/source/boot.c), and [startup.cpp](../native/product/source/startup.cpp).
+
+## Application delivery and updates
+
+The GUI's Python, GTK 4 and libadwaita libraries are bundled in the AppImage. Unity continues using its existing GTK 3 and graphics runtime. External processes receive the original host environment rather than the GUI's bundled library paths. The installed native library and activation record stay beside the Editor, so closing or moving the GUI image does not interrupt future Unity launches.
+
+The manually invoked updater selects releases using GitHub's release list. It verifies a pinned Ed25519 key and a manifest binding version, channel, architecture, filename, byte length and SHA-256 before executing a new image. A self-contained helper outside the mounted image stages replacement on the same filesystem, retains one rollback image, and waits for the replacement's health acknowledgement. Installation prepares and validates native changes before promotion and requires affected Editors to be closed.
+
+The runtime exposes an owner-thread, read-only snapshot interface for settled window/view geometry checks. It is intended for acceptance fixtures; production scaling does not poll this interface or run an additional monitoring loop. A reported scale or successful snapshot is not by itself evidence of correct presented content or physical input.

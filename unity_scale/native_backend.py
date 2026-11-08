@@ -499,7 +499,10 @@ class ConnectionPlan:
         elif self.backup.exists():
             if _identity(self.backup) != self.original_identity or digest(self.backup) != SUPPORTED_ELF_SHA256:
                 raise LaunchError('Original changed during rollback; manual recovery required')
-            os.replace(self.backup, self.public)
+            if self.public.samefile(self.backup):
+                self.backup.unlink()
+            else:
+                os.replace(self.backup, self.public)
             _sync(self.public.parent)
         for name, old in self.old_files.items():
             item = self.package / name

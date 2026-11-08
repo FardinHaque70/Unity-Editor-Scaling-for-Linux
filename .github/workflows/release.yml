@@ -1,0 +1,77 @@
+name: Sign accepted AppImage and prepare draft release
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful AppImage acceptance workflow run ID
+        required: true
+      image_sha256:
+        description: SHA-256 of the artifact accepted in actual Unity
+        required: true
+      version:
+        description: Release version
+        default: 0.4.0-rc.1
+        required: true
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: release-signing
+  cancel-in-progress: false
+jobs:
+  draft:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run }}
+      ACCEPTED_SHA256: ${{ inputs.image_sha256 }}
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Verify accepted workflow identity
+        id: accepted
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          [[ "$ACCEPTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_VERSION" == '0.4.0-rc.1' ]]
+          gh api "repos/$REPOSITORY/actions/runs/$BUILD_RUN" > "$RUNNER_TEMP/run.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          run=json.loads((Path(os.environ['RUNNER_TEMP'])/'run.json').read_text())
+          assert run['conclusion']=='success' and run['status']=='completed'
+          assert run['path']=='.github/workflows/appimage.yml'
+          assert run['event'] in ('push','workflow_dispatch')
+          assert run['head_branch'] in ('main','appimage-v0.4')
+          assert run['repository']['full_name']==os.environ['REPOSITORY']
+          with open(os.environ['GITHUB_OUTPUT'],'a') as stream:
+              stream.write('commit='+run['head_sha']+'\n')
+          PY
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ steps.accepted.outputs.commit }}
+      - name: Download exact accepted artifact
+        run: |
+          gh run download "$BUILD_RUN" --name appimage-x86_64 --dir dist
+          python3 - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          p=Path('dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage')
+          assert hashlib.sha256(p.read_bytes()).hexdigest()==os.environ['ACCEPTED_SHA256']
+          p.chmod(0o755)
+          PY
+          dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage --appimage-extract-and-run --self-test
+          python3 packaging/audit_artifact.py dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage
+      - name: Sign manifest with protected CI secret
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          python3 packaging/sign_release.py
+          openssl pkeyutl -verify -pubin -inkey resources/update-public-key.pem -rawin -in dist/release.json -sigfile dist/release.json.sig
+      - name: Create draft prerelease for final publication gate
+        env:
+          ACCEPTED_COMMIT: ${{ steps.accepted.outputs.commit }}
+        run: |
+          gh release create "v$RELEASE_VERSION" --target "$ACCEPTED_COMMIT" --draft --prerelease --title "Unity Editor Scaling for Linux v$RELEASE_VERSION" --notes-file "docs/releases/v$RELEASE_VERSION.md" dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage dist/SHA256SUMS dist/release.json dist/release.json.sig
