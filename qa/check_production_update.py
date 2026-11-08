@@ -22,6 +22,28 @@ import uuid
 
 QA = Path(__file__).resolve().parent
 
+# Executed in a private bus after the worker hands off to the real updater.
+CASE_CONTROLLER = '''import json,os,subprocess,sys,time
+from pathlib import Path
+worker=subprocess.run(sys.argv[1:],check=False)
+if worker.returncode:raise SystemExit(worker.returncode)
+record=json.loads(Path(os.environ['QA_UPDATE_RESULT']).read_text())
+target=Path(record['target']);stage=Path(record['stage'])
+receipt=Path(record['state_dir'])/'installation.json'
+expected=record['expected_sha256'] if record['mode']=='success' else record['previous_sha256']
+deadline=time.monotonic()+90
+while time.monotonic()<deadline:
+ if not stage.exists() and not target.with_name(target.name+'.rollback').exists():
+  import hashlib
+  if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest()==expected:
+   if receipt.exists() and json.loads(receipt.read_text()).get('image_sha256')==expected:
+    record.update(status='PASS', final_sha256=expected, rollback_removed=True, staging_removed=True)
+    Path(os.environ['QA_UPDATE_RESULT']).write_text(json.dumps(record,indent=2)+'\\n')
+    raise SystemExit(0)
+ time.sleep(.1)
+raise SystemExit('Update did not settle to expected image/receipt within90seconds')
+'''
+
 
 def stop_owned(marker):
     # Detached update helpers have their own process group. Match only the
@@ -108,26 +130,7 @@ def main():
         # The private bus must outlive the worker, helper and replacement
         # GUI. dbus-run-session owns the whole case controller, not worker.
         controller = root / 'case-controller.py'
-        controller.write_text('''import json,os,subprocess,sys,time
-from pathlib import Path
-worker=subprocess.run(sys.argv[1:],check=False)
-if worker.returncode:raise SystemExit(worker.returncode)
-record=json.loads(Path(os.environ['QA_UPDATE_RESULT']).read_text())
-target=Path(record['target']);stage=Path(record['stage'])
-receipt=Path(record['state_dir'])/'installation.json'
-expected=record['expected_sha256'] if record['mode']=='success' else record['previous_sha256']
-deadline=time.monotonic()+90
-while time.monotonic()<deadline:
- if not stage.exists() and not target.with_name(target.name+'.rollback').exists():
-  import hashlib
-  if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest()==expected:
-   if receipt.exists() and json.loads(receipt.read_text()).get('image_sha256')==expected:
-record.update(status='PASS', final_sha256=expected, rollback_removed=True, staging_removed=True)
-Path(os.environ['QA_UPDATE_RESULT']).write_text(json.dumps(record,indent=2)+'\\n')
-raise SystemExit(0)
- time.sleep(.1)
-raise SystemExit('Update did not settle to expected image/receipt within90seconds')
-''')
+        controller.write_text(CASE_CONTROLLER)
         server = start([broadway_wrapper, '-u', root / 'http.socket', ':8'], 'broadway', env)
         deadline = time.monotonic() + 10
         while not (root / 'http.socket').exists():
