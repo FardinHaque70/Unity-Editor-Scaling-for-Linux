@@ -520,6 +520,11 @@ class ConnectionPlan:
 
 def ensure_connected(public, store, *, bundle=None):
     """Connect or migrate a supported closed Editor to this persistent Store."""
+    with store.locked():
+        return _ensure_connected_locked(public, store, bundle=bundle)
+
+
+def _ensure_connected_locked(public, store, *, bundle=None):
     current = store.get_profile(public)
     existing = status(public, current, settings_path=store.path)
     if existing['connected']:

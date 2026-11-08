@@ -88,7 +88,7 @@ class UserInstallTests(unittest.TestCase):
         backend.restore(self.public)
         self.assertEqual(backend._identity(self.public), self.identity)
 
-    def _interrupt_promotion(self, point):
+    def _interrupt_promotion(self, point, image=None):
         """A separate process dies without Python finally/exception rollback."""
         pid = os.fork()
         if pid == 0:
@@ -104,15 +104,16 @@ class UserInstallTests(unittest.TestCase):
                     os._exit(71)
             def write_json(path, *args):
                 actual_json(path, *args)
-                if str(path).endswith(point):
+                if str(path).endswith(point) or (point == 'committed-journal' and Path(path).name == 'install-journal.json' and args[0].get('state') == 'installed' and args[0].get('cleanup')):
                     os._exit(71)
             backend._atomic_bytes, user_install.atomic_json = write, write_json
             os.link = link
-            self.install()
+            self.install(image)
             os._exit(72)
         _, status = os.waitpid(pid, 0)
         self.assertEqual(os.waitstatus_to_exitcode(status), 71)
-        self.assertEqual(json.loads((self.store.state_dir / 'install-journal.json').read_text())['state'], 'prepared')
+        self.assertEqual(json.loads((self.store.state_dir / 'install-journal.json').read_text())['state'],
+                         'installed' if point == 'committed-journal' else 'prepared')
 
     def test_power_failure_during_fresh_native_staging_recovers_original(self):
         self._interrupt_promotion('/native-v2.so')
@@ -152,6 +153,68 @@ class UserInstallTests(unittest.TestCase):
         self.assertEqual(self.store.path.read_bytes(), before_settings)
         self.assertFalse(list(self.store.data_dir.glob('.application-staged-*')))
         self.assertEqual(json.loads((self.store.state_dir / 'installation.json').read_text())['image_sha256'], backend.digest(image))
+
+    def test_power_failure_after_commit_finishes_backup_cleanup(self):
+        self.install()
+        self.image.write_bytes(self.image.read_bytes() + b'new candidate')
+        self._interrupt_promotion('committed-journal')
+        image = self.store.data_dir / 'application.AppImage'
+        self.assertEqual(image.read_bytes(), self.image.read_bytes())
+        self.assertTrue(list(self.store.data_dir.glob('.application-staged-*.previous')))
+        self.assertFalse(user_install.recover_install(self.store))
+        self.assertEqual(image.read_bytes(), self.image.read_bytes())
+        self.assertFalse(list(self.store.data_dir.glob('.application-staged-*')))
+        self.assertNotIn('cleanup', json.loads((self.store.state_dir / 'install-journal.json').read_text()))
+
+    def test_outer_update_rollback_allows_exact_previous_image_during_native_recovery(self):
+        self.install()
+        image = self.store.data_dir / 'application.AppImage'
+        old_image = image.read_bytes()
+        old_receipt = (self.store.state_dir / 'installation.json').read_bytes()
+        package = self.public.parent / backend.PACKAGE_NAME
+        old_native = (package / 'native-v2.so').read_bytes()
+        (self.bundle / 'native-v2.so').write_bytes(b'new inert native revision')
+        manifest = json.loads((self.bundle / 'manifest.json').read_text())
+        manifest['files']['native-v2.so'] = backend.digest(self.bundle / 'native-v2.so')
+        atomic_json(self.bundle / 'manifest.json', manifest)
+        # The outer updater already selected candidate image before native setup.
+        image.write_bytes(old_image + b'candidate AppImage revision')
+        self._interrupt_promotion('/native-v2.so', image=image)
+        self.assertNotEqual((package / 'native-v2.so').read_bytes(), old_native)
+        # Its failed health check restores exactly the prior executable inode.
+        image.write_bytes(old_image)
+        self.assertTrue(user_install.recover_install(self.store))
+        self.assertEqual(image.read_bytes(), old_image)
+        self.assertEqual((package / 'native-v2.so').read_bytes(), old_native)
+        self.assertEqual((self.store.state_dir / 'installation.json').read_bytes(), old_receipt)
+        self.assertEqual(backend._identity(backend.verified_original(self.public)), self.identity)
+
+    def test_real_store_receipt_supports_bootstrap_reopening_download(self):
+        from unity_scale.__main__ import bootstrap_appimage
+        bootstrap_appimage(store=self.store, source=self.image,
+            installer=lambda source, **_kwargs: self.install(source))
+        receipt = json.loads((self.store.state_dir / 'installation.json').read_text())
+        self.assertEqual(receipt['version'], core.VERSION)
+        executions = []
+        bootstrap_appimage(store=self.store, source=self.image,
+            installer=lambda *_args, **_kwargs: self.fail('Repeated same-version download must dispatch installed app'),
+            execute=lambda *args: executions.append(args))
+        self.assertEqual(executions[0][0], str(self.store.data_dir / 'application.AppImage'))
+        self.assertEqual(executions[0][1][1:], ['gui'])
+
+    def test_early_staging_failure_keeps_existing_journal_and_files(self):
+        self.install()
+        image = self.store.data_dir / 'application.AppImage'
+        journal = self.store.state_dir / 'install-journal.json'
+        old_journal, old_image, old_settings = journal.read_bytes(), image.read_bytes(), self.store.path.read_bytes()
+        with patch.object(user_install.shutil, 'copyfile', side_effect=OSError('disk full')), \
+                patch.object(backend, '_atomic_bytes', side_effect=AssertionError('Do not rewrite untouched files')):
+            with self.assertRaisesRegex(OSError, 'disk full'):
+                self.install()
+        self.assertEqual(journal.read_bytes(), old_journal)
+        self.assertEqual(image.read_bytes(), old_image)
+        self.assertEqual(self.store.path.read_bytes(), old_settings)
+        self.assertFalse(list(self.store.data_dir.glob('.application-staged-*')))
 
     def test_interrupted_migration_refuses_foreign_launcher_before_recovery(self):
         self._interrupt_promotion('/Editor/Unity')

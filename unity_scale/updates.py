@@ -80,6 +80,7 @@ class GitHubTransport:
         try:
             return urllib.request.build_opener(_SafeRedirect()).open(request, timeout=TIMEOUT)
         except urllib.error.HTTPError as exc:
+            exc.close()
             if exc.code in (403, 429):
                 raise UpdateError('GitHub rate limit reached. Try again later.') from exc
             raise UpdateError('GitHub could not provide the update (HTTP %s).' % exc.code) from exc

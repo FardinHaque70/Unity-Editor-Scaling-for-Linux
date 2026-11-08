@@ -140,7 +140,9 @@ def main(argv=None):
             raise core.AppError('Post-update startup requires installation.')
         if args.command == 'restore':
             from .native_backend import restore as restore_editor
-            print(json.dumps(restore_editor(args.editor), indent=2))
+            with core.Store().locked():
+                restored = restore_editor(args.editor)
+            print(json.dumps(restored, indent=2))
             return 0
         if args.command == 'uninstall':
             from .user_install import uninstall_user

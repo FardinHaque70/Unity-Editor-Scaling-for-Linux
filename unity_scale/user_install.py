@@ -409,6 +409,7 @@ def install_user(source_appimage, *, store=None, bundle=None, editors=None, chec
                   'preferences_preserved': True, 'Unity_launched': False, 'legacy_cleanup_pending': _legacy_settings(store).exists()}
         replacements = {store.path: _json_bytes(document), launcher: command.encode(), desktop: entry.encode(),
                         icon: icon_source.read_bytes(), store.state_dir / 'installation.json': _json_bytes(result)}
+        recovery = None
         try:
             if not same_image:
                 fd, name = tempfile.mkstemp(prefix='.application-staged-', dir=store.data_dir)
@@ -452,6 +453,13 @@ def install_user(source_appimage, *, store=None, bundle=None, editors=None, chec
             cleanup = {str(path): backend.digest(path) for path in (backup, staged) if path is not None and path.exists()}
             atomic_json(journal, dict(result, cleanup=cleanup))
         except BaseException as original:
+            if recovery is None:
+                # Staging failed before the durable prepared record and before
+                # any public/settings/native promotion. Preserve the previous
+                # installation journal and do not rewrite unchanged files.
+                if backup is not None:
+                    backup.unlink(missing_ok=True)
+                raise
             failures = []
             for plan in reversed(installed):
                 try:

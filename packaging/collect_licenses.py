@@ -65,12 +65,25 @@ def package_owner(path):
     raise RuntimeError('No Ubuntu package owns copied runtime: ' + str(path))
 
 
+def source_owner(path, owners):
+    for candidate in (path.absolute(), path.resolve()):
+        if str(candidate) in owners:
+            return owners[str(candidate)]
+        # Meson's install_subdir records the installed directory, not each child.
+        for parent in candidate.parents:
+            if str(parent) in owners and parent.is_dir():
+                return owners[str(parent)]
+    return None
+
+
 def host_candidates(relative):
     # collect_runtime flattens the architecture-specific library directory.
     values = [Path('/') / relative]
     if relative.parts[:2] == ('usr', 'lib'):
         values += [Path('/usr/lib/x86_64-linux-gnu') / relative.name,
                    Path('/lib/x86_64-linux-gnu') / relative.name]
+    if relative.parts[:3] == ('usr', 'lib', 'girepository-1.0'):
+        values.append(Path('/usr/lib/x86_64-linux-gnu/girepository-1.0') / relative.name)
     if 'site-packages' in relative.parts:
         index = relative.parts.index('site-packages')
         values.append(Path('/usr/lib/python3/dist-packages').joinpath(*relative.parts[index + 1:]))
@@ -84,8 +97,9 @@ def collect_elf_provenance(appdir, source_owners):
         if not path.is_file() or not elf(path):
             continue
         relative = path.relative_to(appdir)
-        if str(path.absolute()) in source_owners:
-            origin = {'source_build': source_owners[str(path.absolute())]}
+        source = source_owner(path, source_owners)
+        if source:
+            origin = {'source_build': source}
         elif relative.is_relative_to(APP_ROOT / 'native') or relative.is_relative_to(APP_ROOT / 'libexec'):
             origin = {'source_build': 'unity-editor-scaling', 'static_dependency_packages': list(STATIC_PACKAGES)}
         else:
@@ -97,14 +111,21 @@ def collect_elf_provenance(appdir, source_owners):
             packages.add(package)
             origin = {'ubuntu_package': package, 'source_path': str(host)}
         inventory.append(dict(path=str(relative), sha256=digest(path), **origin))
-    # Copied GSettings schemas also require their package notices.
-    schemas = appdir / 'usr/share/glib-2.0/schemas'
-    for path in sorted(schemas.glob('*.xml')):
-        host = Path('/usr/share/glib-2.0/schemas') / path.name
-        if host.is_file() and digest(path) == digest(host):
-            packages.add(package_owner(host))
-        elif str(path.absolute()) not in source_owners:
-            raise RuntimeError('Unknown schema provenance: ' + path.name)
+    # Typelibs are loaded dynamically and may come from a separate gir package.
+    # Font/icon/theme files also retain their package notices if bundled later.
+    resource_files = set((appdir / 'usr/share/glib-2.0/schemas').glob('*.xml'))
+    resource_files.update((appdir / 'usr/lib/girepository-1.0').glob('*.typelib'))
+    for directory in ('usr/share/fonts', 'usr/share/icons', 'usr/share/themes'):
+        resource_files.update(path for path in (appdir / directory).rglob('*') if path.is_file())
+    for path in sorted(resource_files):
+        relative = path.relative_to(appdir)
+        if source_owner(path, source_owners):
+            continue
+        host = next((item for item in host_candidates(relative)
+                     if item.is_file() and digest(path) == digest(item)), None)
+        if host is None:
+            raise RuntimeError('Unknown non-ELF runtime provenance: ' + str(relative))
+        packages.add(package_owner(host))
     return inventory, packages
 
 
