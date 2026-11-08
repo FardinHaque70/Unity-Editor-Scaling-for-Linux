@@ -1,5 +1,7 @@
 # Validation and development
 
+See the [Editor-version and desktop-environment checklists](COMPATIBILITY.md) for the current support matrix.
+
 ## Tested setup
 
 Tested on my **CachyOS system with KDE Plasma on Wayland and a 28-inch 4K monitor**. **150% custom Editor scale looks right to me** on this setup; your preferred size may differ.
@@ -31,6 +33,16 @@ Private host-built v2 components were compared with an untouched copy of the sam
 Initial snapshots at 150/160% included transient one-pixel allocation/backing differences. A follow-up at 100/150/160% took **40 successful owner-thread snapshots per scale, 120 total**, spanning resized and generated-scene states; every view in those samples matched its accepted GTK allocation and scale. These readbacks establish allocated geometry at the sampled boundaries, not completed GPU presentation or physical-input accuracy. Actual window captures provide separate rendering evidence. The physical click/menu/resize confirmations above still belong to v1 and must be repeated with the shipped artifact.
 
 Single-run smoke timings for stock versus Custom 150% were respectively: launch to fixture ready **8.121/8.123 s**, enter Play **2.414/2.415 s**, exit Play **0.604/0.605 s**, and close request to process exit **23.204/22.900 s**. Launch includes fixture bootstrap/import; shutdown includes Unity's own teardown. Managed Scene GUI repaint callback intervals were recorded separately and are not GPU/compositor frame pacing. These observations are not a controlled or repeated performance benchmark and do not establish equal performance or input latency. The local evidence groups are `product-v2-reboot-2026-11-08` and `product-v2-rounding-repeat-2026-11-08`; final artifact acceptance remains outstanding.
+
+## 100% / 160% screenshot comparison
+
+Fresh captures on 8 November 2026 use the exact supported Editor, OpenGL, the same saved scene and built-in Default layout, and equal measured window dimensions. Both runs use **Custom scale**: measured pixels per point are 1.0 and approximately 1.6. Desktop scaling is unchanged. The images are original KWin window captures, with no resizing or retouching; [capture metadata](screenshots/comparison.json) records hashes and dimensions. These are visual checks, not physical-input or performance benchmarks.
+
+On 8 November 2026, the maintainer reported opening the Editor normally at **160% without errors**. This is a user-reported startup result, separate from the instrumented capture runs.
+
+### Capture-test observations
+
+The published 160% image contains `MissingReferenceException: UnityEditor.Toolbar` after the test helper programmatically reloaded the default layout. Both pictured sessions measured the requested scale and exited normally. A separate follow-up using a supplied default layout stalled before fixture readiness and exited with SIGSEGV (-11) after a termination request. These observations belong to those test procedures; their causes have not been isolated and they do not establish a general 160% scaling defect. They are retained for reproducibility and are not presented as a warning against normal 160% use.
 
 ## Development checks
 

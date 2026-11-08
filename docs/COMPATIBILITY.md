@@ -53,7 +53,7 @@ The [100%/160% comparison](screenshots/comparison.json) records the capture-test
 
 ## Report a result
 
-[Open a compatibility report](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues/new) with:
+[Open a compatibility report](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/issues/new) with:
 
 - Exact Unity version, app commit/version, and original executable hash when available.
 - Distribution, desktop environment/version, Wayland or X11, GPU/driver, and graphics renderer.

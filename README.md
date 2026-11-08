@@ -6,13 +6,50 @@
 
 Adjust Unity Editor's UI scale independently of your desktop. Each Editor has one Custom scale toggle and a **100–200%** control, shared by every project using that Editor.
 
-![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/standalone-app.png)
+[Compatibility](#compatibility) · [100% → 160% comparison](#unity-editor-100--160) · [Install](#install-and-use)
 
-## Supported setup
+## Unity Editor: 100% → 160%
 
-**Unity 6000.3.27f2 · Linux x86_64 · KDE Plasma Wayland**
+| Before — 100% | After — 160% |
+| --- | --- |
+| <a href="https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/unity-before-100.png"><img src="https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/unity-before-100.png" alt="Unity Editor at 100%" width="360"></a> | <a href="https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/unity-after-160.png"><img src="https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/unity-after-160.png" alt="Unity Editor at 160%" width="360"></a> |
+
+Same Unity build, scene, default layout, and window size. Both use Custom scale; click either capture for full resolution. The 160% image contains an error from the capture test; normal 160% launch was subsequently reported working. See [test notes](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/blob/main/docs/VALIDATION.md#100--160-screenshot-comparison). [Capture details](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/blob/main/docs/screenshots/comparison.json).
+
+## Standalone app
+
+<img src="https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/standalone-app.png" alt="Standalone settings app with Custom scale set to 150%" width="680">
+
+## Compatibility
 
 The native backend accepts one exact Unity executable build. The Editor installation must be owned and writable by your user, with no spaces or colons in its path. The AppImage itself can be in a path containing spaces. Root-owned Editors, other Unity builds, other desktops and live scaling are outside this release.
+
+### Unity Editor versions
+
+| Linux x86_64 Editor | Status |
+| --- | --- |
+| **6000.3.27f2 — exact supported binary** | ✅ Scoped 150% tests |
+| Unity 6.0 / 6000.0.x | ⛔ Unsupported |
+| Unity 6.1 / 6000.1.x | ⛔ Unsupported |
+| Unity 6.2 / 6000.2.x | ⛔ Unsupported |
+| Other Unity 6.3 / 6000.3.x builds | ⛔ Unsupported |
+| Other Unity 6 builds | ⛔ Unsupported |
+| Unity 2022, 2021, and older | ⛔ Unsupported |
+
+### Desktop environments
+
+| Desktop / session | Status |
+| --- | --- |
+| **KDE Plasma / Wayland on CachyOS** | ✅ Tested |
+| KDE Plasma / Wayland on other distributions | ⬜ Allowed, untested |
+| KDE Plasma / X11 | ⛔ Blocked, untested |
+| GNOME / Wayland or X11 | ⛔ Blocked, untested |
+| Hyprland / Wayland | ⛔ Blocked, untested |
+| Cinnamon, including Linux Mint Cinnamon | ⛔ Blocked, untested |
+| MATE / Xfce, including Linux Mint editions | ⛔ Blocked, untested |
+| Sway and other Wayland compositors | ⛔ Blocked, untested |
+
+[Detailed checklists and validation scope](docs/COMPATIBILITY.md). Help extending support and [reporting test results](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/issues) is appreciated.
 
 Local development used CachyOS, KDE Plasma Wayland, an NVIDIA RTX 4080 and a 4K display, with desktop scale at 145% and Unity at 150%. Other hardware and workloads need further testing. See [validation and limitations](docs/VALIDATION.md).
 
