@@ -19,7 +19,7 @@ import urllib.request
 
 from . import core
 
-REPOSITORY = 'FardinHaque70/unity-editor-ui-scalar-for-linux'
+REPOSITORY = 'FardinHaque70/Unity-Editor-Scaling-for-Linux'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases'
 FILENAME = 'Unity-Editor-Scaling-for-Linux-x86_64.AppImage'
 MAX_IMAGE = 1024 * 1024 * 1024

@@ -6,7 +6,7 @@ Tested on my **CachyOS system with KDE Plasma on Wayland and a 28-inch 4K monito
 
 **GNOME and other desktop environments have not been tested.** The current native backend checks for KDE Wayland and refuses custom scaling on other sessions. Help extending compatibility, testing and verifying it, and reporting results would be very much appreciated.
 
-Please [open an issue](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) with your distribution, desktop environment/version, Wayland or X11 session, GPU/driver, monitor size/resolution, desktop scale, Unity version, and selected Editor scale. Describe what worked and any problems with rendering, input, menus, resizing, or docking.
+Please [open an issue](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/issues) with your distribution, desktop environment/version, Wayland or X11 session, GPU/driver, monitor size/resolution, desktop scale, Unity version, and selected Editor scale. Describe what worked and any problems with rendering, input, menus, resizing, or docking.
 
 ## Runtime evidence and limits
 

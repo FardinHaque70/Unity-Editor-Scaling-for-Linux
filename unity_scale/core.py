@@ -15,9 +15,9 @@ from . import __version__
 APP_ID = "io.github.unityscale.UnityScale"
 ICON_NAME = "io.github.unityscale.UnityScale"
 APP_NAME = "Unity Editor Scaling for Linux"
-APP_SLUG = "unity-editor-ui-scalar-for-linux"
+APP_SLUG = "unity-editor-scaling-for-linux"
 VERSION = __version__
-REPOSITORY_URL = "https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux"
+REPOSITORY_URL = "https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux"
 MIN_UI_SCALE = 100
 MAX_UI_SCALE = 200
 ROOT = Path(__file__).resolve().parent.parent

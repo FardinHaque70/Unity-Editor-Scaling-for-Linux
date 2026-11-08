@@ -1,12 +1,12 @@
 # Unity Editor Scaling for Linux
 
-[![Download AppImage](https://img.shields.io/badge/Download-x86__64_AppImage-blue)](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/releases/download/v0.4.0-rc.1/Unity-Editor-Scaling-for-Linux-x86_64.AppImage)
+[![Download AppImage](https://img.shields.io/badge/Download-x86__64_AppImage-blue)](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases/download/v0.4.0-rc.1/Unity-Editor-Scaling-for-Linux-x86_64.AppImage)
 
-**v0.4.0-rc.1 is being prepared.** The download becomes available after artifact and Unity acceptance checks pass. [Release notes](docs/releases/v0.4.0-rc.1.md) · [GitHub releases](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/releases)
+**v0.4.0-rc.1 is being prepared.** The download becomes available after artifact and Unity acceptance checks pass. [Release notes](docs/releases/v0.4.0-rc.1.md) · [GitHub releases](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases)
 
 Adjust Unity Editor's UI scale independently of your desktop. Each Editor has one Custom scale toggle and a **100–200%** control, shared by every project using that Editor.
 
-![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/standalone-app.png)
+![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/main/docs/screenshots/standalone-app.png)
 
 ## Supported setup
 
@@ -52,6 +52,6 @@ Keep the original executable backup until restoration succeeds. [Installation, r
 
 Setup preserves Unity's original executable and places a small launcher at its usual path. With Custom scale enabled, a native library patches guarded functions **in Unity's process memory** to coordinate layout, window geometry, full-resolution rendering, input and menu coordinates. It uses the desktop's existing Xwayland; no private display server or input bridge is installed. Projects and desktop display settings stay unchanged.
 
-Scale is fixed for each Unity process. There is no claim of universal performance equivalence or compatibility. [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Report an issue](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues)
+Scale is fixed for each Unity process. There is no claim of universal performance equivalence or compatibility. [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Report an issue](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/issues)
 
 Independent and unofficial. Unity Editor and Hub are not included. [MPL 2.0](LICENSE) · [Notices and bundled dependencies](NOTICE)
