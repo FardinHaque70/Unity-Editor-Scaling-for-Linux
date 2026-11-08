@@ -95,15 +95,17 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         self.custom = Adw.SwitchRow(title='Custom scale')
         self.custom.connect('notify::active', self.custom_changed)
         scaling.add(self.custom)
-        self.scale_row = Adw.ActionRow(title='Scale')
+        self.scale_row = Adw.ActionRow()
         scaling.add(self.scale_row)
         scale_controls = Gtk.Box(spacing=12, valign=Gtk.Align.CENTER)
         self.adjustment = Gtk.Adjustment(value=150, lower=100, upper=200, step_increment=1, page_increment=10)
         self.slider = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.adjustment,
                                 draw_value=False, width_request=200, valign=Gtk.Align.CENTER)
+        self.slider.update_property([Gtk.AccessibleProperty.LABEL], ['Editor scale percentage'])
         scale_controls.append(self.slider)
         self.spin = Gtk.SpinButton(adjustment=self.adjustment, numeric=True, digits=0, width_chars=4,
                                    update_policy=Gtk.SpinButtonUpdatePolicy.IF_VALID, valign=Gtk.Align.CENTER)
+        self.spin.update_property([Gtk.AccessibleProperty.LABEL], ['Editor scale percentage'])
         scale_controls.append(self.spin)
         scale_controls.append(Gtk.Label(label='%'))
         self.scale_row.add_suffix(scale_controls)

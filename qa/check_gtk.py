@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import faulthandler
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -81,6 +82,80 @@ def labels(widget):
     return found
 
 
+def snapshot_png(snapshot, filename, width, height):
+    """Render the real GTK snapshot using C ABI, avoiding old GI node boxing.
+
+    PyGObject3.46 cannot marshal concrete GskContainerNode return values from
+    Gtk.Snapshot.to_node(). The snapshot and render graph are unchanged; only
+    the renderer calls cross ctypes instead of that unsupported GI conversion.
+    Each transferred native reference is released before returning.
+    """
+    gtk = ctypes.CDLL('libgtk-4.so.1')
+    objects = ctypes.CDLL('libgobject-2.0.so.0')
+    glib = ctypes.CDLL('libglib-2.0.so.0')
+    capsule_pointer = ctypes.pythonapi.PyCapsule_GetPointer
+    capsule_pointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+    capsule_pointer.restype = ctypes.c_void_p
+
+    class Rectangle(ctypes.Structure):
+        _fields_ = [('x', ctypes.c_float), ('y', ctypes.c_float),
+                    ('width', ctypes.c_float), ('height', ctypes.c_float)]
+
+    class Error(ctypes.Structure):
+        _fields_ = [('domain', ctypes.c_uint), ('code', ctypes.c_int), ('message', ctypes.c_char_p)]
+
+    gtk.gtk_snapshot_to_node.argtypes = [ctypes.c_void_p]
+    gtk.gtk_snapshot_to_node.restype = ctypes.c_void_p
+    gtk.gsk_cairo_renderer_new.argtypes = []
+    gtk.gsk_cairo_renderer_new.restype = ctypes.c_void_p
+    gtk.gsk_renderer_realize.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    gtk.gsk_renderer_realize.restype = ctypes.c_int
+    gtk.gsk_renderer_render_texture.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(Rectangle)]
+    gtk.gsk_renderer_render_texture.restype = ctypes.c_void_p
+    gtk.gdk_texture_save_to_png.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    gtk.gdk_texture_save_to_png.restype = ctypes.c_int
+    gtk.gdk_texture_get_width.argtypes = gtk.gdk_texture_get_height.argtypes = [ctypes.c_void_p]
+    gtk.gdk_texture_get_width.restype = gtk.gdk_texture_get_height.restype = ctypes.c_int
+    gtk.gsk_renderer_unrealize.argtypes = [ctypes.c_void_p]
+    gtk.gsk_renderer_unrealize.restype = None
+    gtk.gsk_render_node_unref.argtypes = [ctypes.c_void_p]
+    gtk.gsk_render_node_unref.restype = None
+    objects.g_object_unref.argtypes = [ctypes.c_void_p]
+    objects.g_object_unref.restype = None
+    glib.g_error_free.argtypes = [ctypes.c_void_p]
+    glib.g_error_free.restype = None
+    node = gtk.gtk_snapshot_to_node(capsule_pointer(snapshot.__gpointer__, None))
+    if not node:
+        raise AssertionError('GTK produced an empty snapshot')
+    renderer = texture = None
+    realized = False
+    try:
+        renderer = gtk.gsk_cairo_renderer_new()
+        if not renderer:
+            raise AssertionError('GTK could not allocate a Cairo renderer')
+        error = ctypes.c_void_p()
+        realized = bool(gtk.gsk_renderer_realize(renderer, None, ctypes.byref(error)))
+        message = ''
+        if error:
+            message = ctypes.cast(error, ctypes.POINTER(Error)).contents.message.decode(errors='replace')
+            glib.g_error_free(error)
+        if not realized:
+            raise AssertionError('GTK Cairo renderer could not be realized: ' + message)
+        bounds = Rectangle(0, 0, width, height)
+        texture = gtk.gsk_renderer_render_texture(renderer, node, ctypes.byref(bounds))
+        if not texture or gtk.gdk_texture_get_width(texture) != width or gtk.gdk_texture_get_height(texture) != height:
+            raise AssertionError('GTK produced a missing or incorrectly sized texture')
+        return bool(gtk.gdk_texture_save_to_png(texture, os.fsencode(filename)))
+    finally:
+        if texture:
+            objects.g_object_unref(texture)
+        if realized:
+            gtk.gsk_renderer_unrealize(renderer)
+        if renderer:
+            objects.g_object_unref(renderer)
+        gtk.gsk_render_node_unref(node)
+
+
 def capture(window, name):
     width, height = 760, 520
     window.set_default_size(width, height)
@@ -99,18 +174,8 @@ def capture(window, name):
     snap = Gtk.Snapshot.new()
     snap.render_background(window.get_style_context(), 0, 0, width, height)
     window.do_snapshot(window, snap)
-    node = snap.to_node()
-    if node is None:
-        raise AssertionError("GTK produced an empty snapshot")
-    renderer = Gsk.CairoRenderer.new()
-    renderer.realize(None)
-    try:
-        rectangle = Graphene.Rect()
-        rectangle.init(0, 0, width, height)
-        texture = renderer.render_texture(node, rectangle)
-        verify("capture-" + name, texture.save_to_png(str(OUTPUT / (name + ".png"))), width=width, height=height)
-    finally:
-        renderer.unrealize()
+    verify("capture-" + name, snapshot_png(snap, OUTPUT / (name + ".png"), width, height),
+           width=width, height=height, renderer='actual GTK GskCairoRenderer C ABI')
 
 
 class RecordingStore(core.Store):
@@ -152,6 +217,33 @@ def main():
         window.select_editor(first.path)
         verify("default-remembers-150", store.get_profile(first.path)["ui_scale_percent"] == 150 and not window.custom.get_active())
         capture(window, "simple-default")
+        # On bundled GTK4.12 the redundant ActionRow title was compressed to
+        # individual letters by the slider/spin suffix. Check actual allocation
+        # and text layout, rather than merely checking the saved scale value.
+        title_labels = [widget for widget in descendants(window.scale_row)
+                        if isinstance(widget, Gtk.Label) and widget.get_visible()
+                        and widget.get_label() == 'Scale']
+        verify("scale-title-not-wrapped-or-truncated", all(
+            widget.get_layout().get_line_count() == 1 and not widget.get_layout().is_ellipsized()
+            for widget in title_labels), visible_title_labels=len(title_labels))
+        control_bounds = []
+        percent = [widget for widget in descendants(window.scale_row)
+                   if isinstance(widget, Gtk.Label) and widget.get_label() == '%']
+        verify("scale-percent-unit-visible", len(percent) == 1 and percent[0].get_visible())
+        for control in (window.slider, window.spin, percent[0]):
+            success, rectangle = control.compute_bounds(window.scale_row)
+            minimum, _natural, _baseline_min, _baseline_natural = control.measure(Gtk.Orientation.HORIZONTAL, -1)
+            x, y = rectangle.get_x(), rectangle.get_y()
+            width, height = rectangle.get_width(), rectangle.get_height()
+            visible = (success and control.get_visible() and width >= minimum and height > 0
+                       and x >= -0.5 and y >= -0.5
+                       and x + width <= window.scale_row.get_width() + 0.5
+                       and y + height <= window.scale_row.get_height() + 0.5)
+            control_bounds.append(dict(type=type(control).__name__, visible=visible,
+                x=x, y=y, width=width, height=height, minimum=minimum))
+        verify("scale-controls-fully-visible", all(v['visible'] for v in control_bounds),
+               row_width=window.scale_row.get_width(), row_height=window.scale_row.get_height(),
+               controls=control_bounds)
 
         window.custom.set_active(True)
         until(lambda: store.get_profile(first.path)["override_enabled"] and window.session.state.inflight is None, "toggle autosave")
