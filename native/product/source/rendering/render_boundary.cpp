@@ -78,7 +78,20 @@ struct Rect {float x,y,w,h;};
 #define ONE(name,id) static void name(void*p){Scope s(id);orig<void(*)(void*)>(id)(p);}
 #define TWO(name,id) static void name(void*p,void*q){Scope s(id);orig<void(*)(void*,void*)>(id)(p,q);}
 #define BOOLARG(name,id) static void name(void*p,bool b){Scope s(id);orig<void(*)(void*,bool)>(id)(p,b);}
-BOOLARG(paint,RB_PAINT)
+/* A repaint callback can close another view before its paint is reached.
+ * During an active batch, a closing view with a detached GTK surface cannot
+ * paint. Keep live surfaces and flag0 NULL-widget previews, including nested
+ * direct calls; outside a batch the original DoPaint behavior is unchanged. */
+static void paint(void*p,bool b){
+ Scope s(RB_PAINT);
+ if(p&&active[RB_REPAINT_BATCH].load(std::memory_order_relaxed)){
+  unsigned char closed=0;void*widget=nullptr;
+  std::memcpy(&closed,(const char*)p+0x2b,sizeof closed);
+  std::memcpy(&widget,(const char*)p+0x10,sizeof widget);
+  if(closed==1&&!widget)return;
+ }
+ orig<void(*)(void*,bool)>(RB_PAINT)(p,b);
+}
 ONE(reshape,RB_RESHAPE)
 ONE(screen,RB_SCREEN)
 ONE(create_gfx,RB_CREATE_GFX)

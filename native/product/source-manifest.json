@@ -7,6 +7,7 @@
     "README.txt": "d212542640cc5644b1c793f4f316d0d6590b03c8a64594bcdee29d9ab3b30cc7",
     "build.py": "033199574e2bdcbcfcee63ce96a82edd5cc27345864c33e4d280f5dc08865281",
     "check.py": "4e2e8e8aae1329506f767a0cecc5f303277470da1e88f2c25acfda070dfa18cd",
+    "closed_batch_paint_check.py": "fad9e0393d83e160579d848f0c721595229f60e854053a00a0e9b474864caa00",
     "compatibility.json": "c2905341ec8fb16807c978d523b45630251d4043fdf693aca79f7cb3a1fb77c3",
     "constructor_check.py": "72600ff72f12995ef11607711200c14a35357fc11a12c998e83e12110e4bcbd7",
     "environment_check.py": "3120c159ffa0058c008ecf8e2d1a2b075447ab17ebd9e2a9a97a1979bf3a9f55",
@@ -57,7 +58,7 @@
     "source/rendering/accepted_repaint.h": "33be14136a95354ec324c08c6dc0b96159d904369db01cbd3f8a1b51dc6cad90",
     "source/rendering/boundary_manifest.json": "8a45733dd1e5e99e8b8e19d0ac3b12922b11cea23dcd29eafc5d52e97aadf805",
     "source/rendering/entry_guards.h": "39e5ffb67bfa64059e2484c69056bcfc65680555b44996351e534bc0ef6d651a",
-    "source/rendering/render_boundary.cpp": "a27f3cd5b97da0ce4d85a1152cb0fa12ed288485c5b9a0583db85a037bedf553",
+    "source/rendering/render_boundary.cpp": "770eb9c7634f53d25df31e4c0545e3b1fe7e6faedf36af8f0b25f4684f339393",
     "source/rendering/render_boundary.h": "3ef10d685585b9d3789526e04479aa5e445e8790a2491f45e645b49337a6621a",
     "source/rendering/scope_adapter.c": "3df4b8404bdf973b9a0013dbe20277f9d955c8dce0875273babf5b4b61853b90",
     "source/review/scope-recipes.generated.h": "1b76cdf68bc98658e8f13aa468d2ac23c72c3b28b43d5fe761481567a20f627a",
@@ -71,6 +72,7 @@
     "source/wrappers.generated.c": "d4018d921560261ff20a764f743dd8587adcb87970cffec878a1c918062b43f9",
     "tests/accepted_repaint.cpp": "aba4d59a64892de394f7995e97e7c5136b81d4ce25bf7250b8b42167de320c29",
     "tests/accepted_repaint_test_host.h": "4b453f7ce510ebfcbbb364511f568194a34a8e5822e7e5b1c2f1bd035976c9ed",
+    "tests/closed_batch_paint.cpp": "34b7d38676c32d92e97aef38dd551efc5d95aec798a72f1b93bcfd4d8d6c713c",
     "tests/input_payloads.c": "8ceef4231b70f57842a849cdfcce5408b42cbb7254043ec671a1181ea0fa1f7b",
     "tests/policy.cpp": "6493258bbf0840ff2dea186394e954518d9ed4a59fb5d21253400b692683946a"
   }
