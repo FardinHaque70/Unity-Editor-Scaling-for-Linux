@@ -5,6 +5,7 @@ Imports the application shipped inside the extracted release, never source-tree
 code. No production signing key or fabricated public release is used.
 """
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -40,11 +41,33 @@ def main():
         old_hash = hashlib.sha256(target.read_bytes()).hexdigest()
         atomic_json(store.state_dir / 'installation.json', dict(schema=2, version='0.3.0-rc.1',
             image=str(target), image_sha256=old_hash))
+        selection_transport = None
+        if os.environ.get('QA_UPDATE_RELEASE_CACHE'):
+            metadata = Path(os.environ['QA_UPDATE_RELEASE_CACHE']).read_bytes()
+            releases = json.loads(metadata)
+            if not isinstance(releases, list):
+                raise RuntimeError('Cached public release-list metadata must be an array')
+            browser_assets = {asset['url']: asset['browser_download_url']
+                for item in releases for asset in item.get('assets', [])}
+            class PublicMetadataCache:
+                def open(self, url):
+                    if url == updates.API + '?per_page=100&page=1':
+                        return io.BytesIO(metadata)
+                    if url not in browser_assets:
+                        raise RuntimeError('Unexpected URL in qualified public metadata test')
+                    return updates.GitHubTransport().open(browser_assets[url])
+            selection_transport = PublicMetadataCache()
+            record.update(source='qualified public metadata snapshot and anonymous browser assets',
+                metadata_acquisition='authenticated gh public release-list snapshot',
+                metadata_sha256=hashlib.sha256(metadata).hexdigest(),
+                anonymous_release_API_selection='NOT PASSED: live API returned HTTP403, quota exhausted',
+                public_asset_transport='shipped GitHubTransport, API URLs mapped to public browser URLs from metadata',
+                production_verification='unmodified signature, hash, staging, helper, GUI health and rollback paths')
         # Stable users must not be offered this release candidate.
-        stable = updates.check(current='0.3.0')
+        stable = updates.check(current='0.3.0', transport=selection_transport)
         if stable is not None and '-rc.' in stable.version:
             raise RuntimeError('Stable client was offered a prerelease')
-        release = updates.check(current='0.3.0-rc.1')
+        release = updates.check(current='0.3.0-rc.1', transport=selection_transport)
         if release is None or release.version != core.VERSION:
             raise RuntimeError('The expected public prerelease is not available')
         record.update(version=release.version, url=release.url,
@@ -62,8 +85,8 @@ def main():
             transport = VerifiedCache()
             record['payload_download'] = 'reuse verified public payload from successful case'
         else:
-            transport = None
-            record['payload_download'] = 'anonymous GitHub HTTPS download'
+            transport = selection_transport
+            record['payload_download'] = 'anonymous GitHub HTTPS browser asset' if selection_transport else 'anonymous GitHub HTTPS download'
         prepared = updates.prepare(release, target=target, transport=transport,
             progress=lambda got,total: progress.append((got,total)))
         if not cache.exists():

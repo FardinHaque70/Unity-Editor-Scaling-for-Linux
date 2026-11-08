@@ -2,7 +2,7 @@
 
 [![Download AppImage](https://img.shields.io/badge/Download-x86__64_AppImage-blue)](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases/download/v0.4.0-rc.1/Unity-Editor-Scaling-for-Linux-x86_64.AppImage)
 
-**v0.4.0-rc.1 is being prepared.** The download becomes available after artifact and Unity acceptance checks pass. [Release notes](docs/releases/v0.4.0-rc.1.md) · [GitHub releases](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases)
+**[v0.4.0-rc.1 prerelease is available](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases/tag/v0.4.0-rc.1).** See its scoped validation results and remaining limits. [Release notes](docs/releases/v0.4.0-rc.1.md) · [GitHub releases](https://github.com/FardinHaque70/Unity-Editor-Scaling-for-Linux/releases)
 
 Adjust Unity Editor's UI scale independently of your desktop. Each Editor has one Custom scale toggle and a **100–200%** control, shared by every project using that Editor.
 

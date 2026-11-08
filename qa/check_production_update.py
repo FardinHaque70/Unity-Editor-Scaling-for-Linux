@@ -73,6 +73,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--release-metadata-cache', type=Path,
+        help='Qualified test only: public gh metadata snapshot when anonymous API is rate-limited')
     args = parser.parse_args()
     image = args.image.resolve()
     output = args.output.resolve()
@@ -80,7 +82,9 @@ def main():
         parser.error('Evidence output must be absent or empty')
     output.mkdir(parents=True, exist_ok=True)
     result = {'status': 'FAIL', 'daily_files_changed': False, 'Unity_launched': False,
-              'desktop_windows': False, 'cases': []}
+              'desktop_windows': False, 'cases': [],
+              'release_metadata_mode': 'cached authenticated public snapshot; anonymous API selection not passed'
+                  if args.release_metadata_cache else 'live anonymous GitHub release API'}
     marker = uuid.uuid4().hex
     processes, logs = [], []
     temporary = None
@@ -105,6 +109,10 @@ def main():
                    GSK_RENDERER='cairo', GSETTINGS_BACKEND='memory', GTK_A11Y='none',
                    XDG_RUNTIME_DIR=str(runtime), APPIMAGE_EXTRACT_AND_RUN='1',
                    PYTHONDONTWRITEBYTECODE='1')
+        if args.release_metadata_cache:
+            snapshot = root / 'public-release-metadata.json'
+            shutil.copyfile(args.release_metadata_cache, snapshot)
+            env['QA_UPDATE_RELEASE_CACHE'] = str(snapshot)
         original = (appdir / 'AppRun').read_text()
         final = '"$APPDIR/usr/bin/python3.10" -S -c \'import sys; sys.path = [p for p in sys.path if p]; sys.argv[0] = "unity-scale"; from unity_scale.__main__ import main; raise SystemExit(main())\' "$@"'
         if original.count(final) != 1:
@@ -143,8 +151,11 @@ def main():
                 XDG_DATA_HOME=str(home / 'data'), XDG_STATE_HOME=str(home / 'state'),
                 XDG_CACHE_HOME=str(home / 'cache'), QA_UPDATE_MODE=mode,
                 QA_UPDATE_RESULT=str(output / (mode + '.json')))
+            # The controller already inherits the bundled runtime. Launch its
+            # worker as an ELF directly; re-entering a /bin/sh wrapper here
+            # would load bundled libraries into the host shell before AppRun.
             process = start([dbus, '--config-file=' + str(bus_config), '--', python_wrapper,
-                controller, python_wrapper, QA / 'update_artifact_worker.py'], mode, case_env)
+                controller, appdir / 'usr/bin/python3.10', '-S', QA / 'update_artifact_worker.py'], mode, case_env)
             code = process.wait(timeout=180)
             record_path = output / (mode + '.json')
             record = json.loads(record_path.read_text()) if record_path.exists() else {'status':'FAIL'}
