@@ -4,17 +4,26 @@ Make Unity Editor easier to read on high-DPI Linux displays, with a scale settin
 
 **Development prerelease · Unity 6000.3.27f2 · Linux x86_64 · KDE Wayland · OpenGL**
 
-![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/standalone-app.png)
+## Unity Editor: 100% → 160%
 
-## Tested setup
+| Before — 100% | After — 160% |
+| --- | --- |
+| [![Unity Editor at 100%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png)](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png) | [![Unity Editor at 160%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png)](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png) |
 
-| System | Display | Preferred Editor scale |
+Same Unity build, scene, default layout, and window size. Both use Custom scale; click either capture for full resolution. The 160% capture includes a layout-reload error; see [known issues](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/VALIDATION.md#100--160-screenshot-comparison). [Capture details](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/screenshots/comparison.json).
+
+## Compatibility
+
+| Component | Supported | Currently unsupported |
 | --- | --- | --- |
-| CachyOS, KDE Plasma on Wayland | 28-inch 4K monitor | 150% |
+| Unity Editor | **6000.3.27f2 Linux x86_64, exact binary only** | Every other Editor build |
+| Desktop session | **KDE Plasma on Wayland** | KDE X11, GNOME, Hyprland, Cinnamon, MATE, Xfce |
 
-Other setups and percentages need more testing. **GNOME and other desktop environments are untested; the current backend only accepts KDE Wayland.** Help extending support, testing, and [reporting results](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) would be very much appreciated.
+Tested on **CachyOS with a 28-inch 4K monitor**; preferred Editor scale is 150%. Unity must use OpenGL; local trials used `-force-glcore`.
 
-Only the exact supported Unity executable is accepted. Unity must use OpenGL; local trials used `-force-glcore`. See [compatibility and validation](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/VALIDATION.md).
+[Editor-version and desktop-environment checklists →](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/COMPATIBILITY.md)
+
+Help extending support, testing, and [reporting results](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) is appreciated.
 
 ## How it works
 
@@ -40,6 +49,13 @@ Install the [dependencies](https://github.com/FardinHaque70/unity-editor-ui-scal
 Turn Custom scale off to use Unity default after restarting. The app reports saved settings and launcher status, not the effective scale of a running Editor.
 
 **Restore the original launcher before updating or removing a connected Editor.** See [installation, restoration, and updates](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/INSTALL.md).
+
+<details>
+<summary>Standalone settings app</summary>
+
+![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/standalone-app.png)
+
+</details>
 
 ---
 

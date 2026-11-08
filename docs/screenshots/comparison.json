@@ -1,0 +1,70 @@
+{
+  "unity_version": "6000.3.27f2",
+  "original_elf_sha256": "d5e670eab13daa0962126f61354041a1077757a7d2ecb3f3eaff5ac859cbbbec",
+  "desktop": "CachyOS / KDE Plasma Wayland",
+  "renderer_requested": "OpenGL (-force-glcore)",
+  "comparison": "Custom 100% before; Custom 160% after",
+  "requested_window_state": "Maximize requested; desktop tiling retained identical measured frames in both cases.",
+  "image_processing": "KWin window captures encoded as PNG; no resizing, compositing or retouching",
+  "cases": [
+    {
+      "percent": 100,
+      "measured_pixels_per_point": 1.0,
+      "graphics": "NVIDIA GeForce RTX 4080/PCIe/SSE2 | OpenGL 4.5.0 NVIDIA 615.78.08",
+      "frame_logical": {
+        "x": 1328.9655172413793,
+        "y": 7.586206896551724,
+        "width": 1311.7241379310346,
+        "height": 1435.1724137931035
+      },
+      "client_logical": {
+        "x": 1328.9655172413793,
+        "y": 7.586206896551724,
+        "width": 1311.7241379310346,
+        "height": 1435.1724137931035
+      },
+      "png": "unity-before-100.png",
+      "png_sha256": "f447b8b74c0f9b3537d4972bd0a99b5edbc03b9e6ab253e20d8745972208fc8f",
+      "pixel_width": 1910,
+      "pixel_height": 2089,
+      "desktop_capture_scale": 1.45,
+      "scene_sha256": "df070532a2bd866e4abcfe6ce24f482794dec124a63328cd01b9eaf049d6bf49",
+      "normal_exit_code": 0
+    },
+    {
+      "percent": 160,
+      "measured_pixels_per_point": 1.600000023841858,
+      "graphics": "NVIDIA GeForce RTX 4080/PCIe/SSE2 | OpenGL 4.5.0 NVIDIA 615.78.08",
+      "frame_logical": {
+        "x": 1328.9655172413793,
+        "y": 7.586206896551724,
+        "width": 1311.7241379310346,
+        "height": 1435.1724137931035
+      },
+      "client_logical": {
+        "x": 1328.9655172413793,
+        "y": 7.586206896551724,
+        "width": 1311.7241379310346,
+        "height": 1435.1724137931035
+      },
+      "png": "unity-after-160.png",
+      "png_sha256": "19773acecbd8e66f06bee389f75f1bd43612ef8cd14947007a2cc675b07ed539",
+      "pixel_width": 1910,
+      "pixel_height": 2089,
+      "desktop_capture_scale": 1.45,
+      "scene_sha256": "df070532a2bd866e4abcfe6ce24f482794dec124a63328cd01b9eaf049d6bf49",
+      "normal_exit_code": 0
+    }
+  ],
+  "temporary_editor_project_preferences_removed": true,
+  "installed_editor_preferences_desktop_unchanged": true,
+  "observed_issues": [
+    {
+      "percent": 160,
+      "condition": "Programmatic default-layout reload during capture preparation",
+      "error": "MissingReferenceException: UnityEditor.Toolbar was destroyed",
+      "visible_in_after_capture": true,
+      "cause": "Not isolated; no claim that the backend or fixture caused it exclusively."
+    }
+  ]
+}
