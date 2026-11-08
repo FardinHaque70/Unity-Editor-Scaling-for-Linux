@@ -24,7 +24,7 @@ Same Unity build, scene, default layout, and window size. Both use Custom scale;
 
 | Linux x86_64 Editor | Status |
 | --- | --- |
-| **6000.3.27f2 — exact supported binary** | ✅ Scoped 150% tests; normal 160% launch confirmed by user |
+| **6000.3.27f2 — exact supported binary** | ✅ Scoped 150% tests |
 | Unity 6.0 / 6000.0.x | ⛔ Unsupported |
 | Unity 6.1 / 6000.1.x | ⛔ Unsupported |
 | Unity 6.2 / 6000.2.x | ⛔ Unsupported |
