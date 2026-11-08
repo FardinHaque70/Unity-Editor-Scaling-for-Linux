@@ -47,7 +47,7 @@ build pygobject -Dtests=false -Dpycairo=enabled
 cp -L /usr/bin/python3.10 "$appdir/usr/bin/python3.10"
 cp -a /usr/lib/python3.10 "$appdir/usr/lib/"
 cp -a /usr/lib/python3/dist-packages/cairo "$appdir/usr/lib/python3.10/site-packages/"
-rm -rf "$appdir/usr/lib/python3.10"/config-*
+rm -rf "$appdir/usr/lib/python3.10"/config-* "$appdir/usr/lib/python3.10/site-packages/cairo/include"
 # GIR/typelib dependencies are loaded dynamically and cannot be found by ldd.
 for typelib in GdkPixbuf-2.0 Pango-1.0 PangoCairo-1.0 cairo-1.0 freetype2-2.0 HarfBuzz-0.0 Graphene-1.0; do
   cp -L "/usr/lib/x86_64-linux-gnu/girepository-1.0/$typelib.typelib" "$appdir/usr/lib/girepository-1.0/"
