@@ -58,7 +58,7 @@
   ],
   "temporary_editor_project_preferences_removed": true,
   "installed_editor_preferences_desktop_unchanged": true,
-  "observed_issues": [
+  "capture_test_observations": [
     {
       "percent": 160,
       "condition": "Programmatic default-layout reload during capture preparation",
@@ -73,5 +73,12 @@
       "counted_as_pass": false,
       "cause": "Unresolved; not isolated from capture setup or termination."
     }
-  ]
+  ],
+  "subsequent_user_report": {
+    "date": "2026-11-08",
+    "reported_by": "maintainer",
+    "selected_custom_percent": 160,
+    "result": "Normal Editor launch opened without errors.",
+    "verification": "User report; separate from the capture harness."
+  }
 }

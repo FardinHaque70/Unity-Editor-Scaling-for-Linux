@@ -8,7 +8,7 @@ Checked items have the evidence described beside them. **Blocked** means the cur
 
 All entries refer to Linux x86_64 Editors using OpenGL.
 
-- [x] **6000.3.27f2, exact binary below** — supported. Scoped physical-input/window tests at 150%; 100% and 160% visual captures and earlier resize/rendering checks. See [validation details](VALIDATION.md).
+- [x] **6000.3.27f2, exact binary below** — supported. Scoped physical-input/window tests at 150%; 100% and 160% visual captures and earlier resize/rendering checks. The maintainer subsequently reported a normal 160% launch without errors. See [validation details](VALIDATION.md).
 - [ ] **Unity 6.0 / 6000.0.x** — blocked; no compatibility adapter or runtime validation.
 - [ ] **Unity 6.1 / 6000.1.x** — blocked; no compatibility adapter or runtime validation.
 - [ ] **Unity 6.2 / 6000.2.x** — blocked; no compatibility adapter or runtime validation.
@@ -44,14 +44,12 @@ Help implementing compatibility and verifying other environments is welcome. Cha
 
 - [x] **Custom 100%** — measured UI scale and a captured main Editor window; used as the visual baseline.
 - [x] **Custom 150%** — scoped physical clicks, a context-menu selection, resizing, Inspector scrolling, Scene navigation, captured window recreation, and normal shutdown.
-- [x] **Custom 160%** — measured UI scale and a captured main Editor window; separate scoped resize/rendering/reload checks. Full physical-input coverage at 160% is untested.
+- [x] **Custom 160%** — measured UI scale and a captured main Editor window; separate scoped resize/rendering/reload checks. On 8 November 2026, the maintainer also reported a normal 160% launch without errors. Full physical-input coverage at 160% is untested.
 - [ ] **Complete 100–200% coverage** — not established; accepting a percentage in settings is not proof that every workflow works at that value.
-- [ ] **Live default-layout reload during startup at 160%** — one capture-preparation attempt logged a destroyed-toolbar `MissingReferenceException`; cause not isolated. The 160% comparison capture shows this error; error-free operation is not established for this action.
-- [ ] **Startup with a supplied default layout at 160%** — one follow-up stalled before fixture readiness and exited with SIGSEGV (-11) after a termination request; cause unresolved.
 - [ ] **Physical docking and mixed-DPI monitor transitions** — not established.
 - [ ] **Performance and input/presentation latency benchmarks** — not established.
 
-The [100%/160% comparison](screenshots/comparison.json) includes a visible 160% toolbar exception and records the scene identity, requested and measured scale, renderer, window dimensions, capture hashes, and normal exit. Screenshots show rendering; they do not verify physical input or performance.
+The [100%/160% comparison](screenshots/comparison.json) records the capture-test toolbar exception separately from normal-startup reports, along with the scene identity, requested and measured scale, renderer, window dimensions, capture hashes, and normal exit. Screenshots show rendering; they do not verify physical input or performance.
 
 ## Report a result
 

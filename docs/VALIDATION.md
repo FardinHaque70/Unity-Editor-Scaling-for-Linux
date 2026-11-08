@@ -22,7 +22,11 @@ Exact executable hashes and instruction-byte guards are checked before hooks are
 
 Fresh captures on 8 November 2026 use the exact supported Editor, OpenGL, the same saved scene and built-in Default layout, and equal measured window dimensions. Both runs use **Custom scale**: measured pixels per point are 1.0 and approximately 1.6. Desktop scaling is unchanged. The images are original KWin window captures, with no resizing or retouching; [capture metadata](screenshots/comparison.json) records hashes and dimensions. These are visual checks, not physical-input or performance benchmarks.
 
-The published 160% capture visibly includes `MissingReferenceException: UnityEditor.Toolbar` after the test helper programmatically reloaded the default layout. Both pictured runs verified the requested scale and exited normally, but the exception remains unresolved; whether it is caused by the backend or capture procedure has not been isolated. A follow-up attempt with the layout supplied before startup stalled before fixture readiness; after a termination request, it exited with SIGSEGV (code -11). Its cause is unresolved and it is not counted as a pass. The comparison demonstrates the size change, not error-free 160% operation.
+On 8 November 2026, the maintainer reported opening the Editor normally at **160% without errors**. This is a user-reported startup result, separate from the instrumented capture runs.
+
+### Capture-test observations
+
+The published 160% image contains `MissingReferenceException: UnityEditor.Toolbar` after the test helper programmatically reloaded the default layout. Both pictured sessions measured the requested scale and exited normally. A separate follow-up using a supplied default layout stalled before fixture readiness and exited with SIGSEGV (-11) after a termination request. These observations belong to those test procedures; their causes have not been isolated and they do not establish a general 160% scaling defect. They are retained for reproducibility and are not presented as a warning against normal 160% use.
 
 ## Development checks
 
