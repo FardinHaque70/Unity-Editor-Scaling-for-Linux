@@ -10,7 +10,7 @@ Make Unity Editor easier to read on high-DPI Linux displays, with a scale settin
 
 | System | Display | Preferred Editor scale |
 | --- | --- | --- |
-| CachyOS, KDE Plasma on Wayland | 28-inch 4K monitor | 150% looks right to me |
+| CachyOS, KDE Plasma on Wayland | 28-inch 4K monitor | 150% |
 
 Other setups and percentages need more testing. **GNOME and other desktop environments are untested; the current backend only accepts KDE Wayland.** Help extending support, testing, and [reporting results](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) would be very much appreciated.
 
