@@ -217,7 +217,7 @@ def main(argv=None):
     package_records = collect_package_notices(packages, output)
     source_records = collect_source_notices(sources, source_lock, output)
     notices = collect_remote_notices(project, output)
-    for name in ('sources.lock.json', 'tools.lock.json', 'notices.lock.json', 'build_appimage.sh', 'collect_runtime.py', 'collect_licenses.py'):
+    for name in ('sources.lock.json', 'tools.lock.json', 'notices.lock.json', 'build_appimage.sh', 'collect_runtime.py', 'collect_licenses.py', 'fetch_locked.py', 'AppRun'):
         copy_notice(project / 'packaging' / name, output / 'build-inputs' / name)
     copy_notice(project / 'docs/THIRD_PARTY.md', output / 'THIRD_PARTY.md')
     # NOTICE refers to this path; preserve it in the application root as well.

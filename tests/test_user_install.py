@@ -345,5 +345,61 @@ class UserInstallTests(unittest.TestCase):
         self.assertEqual(backend._identity(backend.verified_original(self.public)), self.identity)
 
 
+class UpdateHelperAncestorTests(unittest.TestCase):
+    @unittest.skipUnless(__import__('shutil').which('cc') and __import__('shutil').which('openssl'),
+                         'native signing toolchain unavailable')
+    def test_real_helper_ancestor_allows_its_post_update_installer(self):
+        import hashlib
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory(prefix='unity-helper-ancestor-') as directory:
+            base = Path(directory)
+            store = Store(base / 'isolated')
+            with store.locked():pass
+            target = store.data_dir / 'application.AppImage'
+            target.write_bytes(b'#!/bin/sh\nexit 0\n');target.chmod(0o700)
+            stage = Path(tempfile.mkdtemp(prefix='.update-', dir=store.data_dir))
+            source = Path(__file__).resolve().parents[1] / 'packaging/update_helper.c'
+            helper = stage / 'update-helper'
+            subprocess.run(['cc','-Wall','-Wextra','-Werror',str(source),'-lcrypto','-o',str(helper)],check=True)
+            outcome = base / 'candidate-result'
+            program = ('#!' + sys.executable + '\nimport os,sys\nfrom pathlib import Path\n'
+                'sys.path.insert(0,' + repr(str(source.parents[1])) + ')\n'
+                'from unity_scale.private_store import Store\nfrom unity_scale.user_install import _app_closed\n'
+                'os.environ["APPIMAGE"]=' + repr(str(target)) + '\n'
+                'try:\n _app_closed(Store(' + repr(str(store.root)) + '))\n'
+                'except Exception as exc:\n Path(' + repr(str(outcome)) + ').write_text(str(exc));raise\n'
+                'Path(' + repr(str(outcome)) + ').write_text("installer accepted")\n'
+                'Path(sys.argv[3]).write_text(sys.argv[4])\n').encode()
+            candidate = stage / 'new.AppImage';candidate.write_bytes(program);candidate.chmod(0o700)
+            manifest = stage / 'release.json';signature = stage / 'release.json.sig'
+            private = base / 'private.pem';public = stage / 'public-key.pem'
+            manifest.write_text(json.dumps(dict(schema=1,version='0.5.0',channel='stable',architecture='x86_64',
+                filename='Unity-Editor-Scaling-for-Linux-x86_64.AppImage',size=len(program),sha256=hashlib.sha256(program).hexdigest())))
+            subprocess.run(['openssl','genpkey','-algorithm','ED25519','-out',str(private)],check=True,capture_output=True)
+            subprocess.run(['openssl','pkey','-in',str(private),'-pubout','-out',str(public)],check=True,capture_output=True)
+            subprocess.run(['openssl','pkeyutl','-sign','-rawin','-inkey',str(private),'-in',str(manifest),'-out',str(signature)],check=True,capture_output=True)
+            result = subprocess.run([str(helper),'apply','2147483647',str(target),str(candidate),str(manifest),
+                str(signature),str(public),str(stage / 'healthy'),'a'*64,'0.5.0'],timeout=10,check=False,capture_output=True)
+            self.assertEqual(result.returncode,0, result.stderr.decode(errors='replace'))
+            self.assertEqual(outcome.read_text(),'installer accepted')
+            self.assertEqual(target.read_bytes(),program)
+            self.assertFalse(stage.exists())
+            self.assertFalse(target.with_name(target.name+'.rollback').exists())
+
+    def test_unrelated_process_mentioning_image_is_still_a_blocker(self):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory(prefix='unity-helper-unrelated-') as directory:
+            store = Store(Path(directory) / 'isolated')
+            target = store.data_dir / 'application.AppImage'
+            child = subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)',str(target)])
+            try:
+                with self.assertRaisesRegex(core.AppError,'Close the scaling'):
+                    user_install._app_closed(store)
+            finally:
+                child.terminate();child.wait(timeout=5)
+
+
 if __name__ == '__main__':
     unittest.main()

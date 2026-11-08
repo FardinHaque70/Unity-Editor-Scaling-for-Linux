@@ -65,6 +65,39 @@ def migration_document(store):
     return merged
 
 
+def _owned_update_helper_ancestor(process, store):
+    """Recognize the detached helper waiting for this installer's health ACK.
+
+    It is deliberately limited to our ancestor chain, exact apply argv and a
+    private staged executable beside this managed image. An unrelated process
+    merely mentioning the AppImage remains a blocker.
+    """
+    try:
+        arguments = (process / 'cmdline').read_bytes().split(b'\0')
+        if arguments and arguments[-1] == b'':
+            arguments.pop()
+        if len(arguments) != 11 or arguments[1] != b'apply':
+            return False
+        target = store.data_dir / 'application.AppImage'
+        if arguments[3] != os.fsencode(target):
+            return False
+        stage = Path(os.fsdecode(arguments[4]))
+        directory = stage.parent
+        executable = Path(os.readlink(process / 'exe'))
+        if (stage.name != 'new.AppImage' or directory.parent != store.data_dir
+                or not directory.name.startswith('.update-') or executable != directory / 'update-helper'):
+            return False
+        safe_root(directory)
+        backend._safe(executable, owner=True)
+        if (directory.stat().st_uid != os.getuid() or directory.stat().st_mode & 0o077
+                or not executable.is_file()):
+            return False
+        with executable.open('rb') as stream:
+            return stream.read(4) == b'\x7fELF'
+    except (OSError, ValueError, core.AppError):
+        return False
+
+
 def _app_closed(store):
     """No GUI imports: detect the legacy interpreter and managed AppImage."""
     wanted = [str(store.data_dir / 'application.AppImage'), str(store.data_dir / 'launch.sh'),
@@ -78,7 +111,8 @@ def _app_closed(store):
         while parent > 1:
             directory = Path('/proc') / str(parent)
             try:
-                if Path(own_image).samefile(directory / 'exe'):
+                if (Path(own_image).samefile(directory / 'exe')
+                        or _owned_update_helper_ancestor(directory, store)):
                     runtime_ancestors.add(parent)
                 lines = (directory / 'status').read_text().splitlines()
                 parent = int(next(line.split()[1] for line in lines if line.startswith('PPid:')))

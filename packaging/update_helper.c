@@ -154,7 +154,7 @@ static pid_t launch(const char *image,const char *ack,const char *token){
       execl(image,image,"--install-user","--post-update",ack,token,(char*)NULL);_exit(127);}return p;
 }
 static void restore_launch(const char *image){pid_t p=fork();if(p==0){start_environment();execl(image,image,"--install-user","--recover-update",(char*)NULL);_exit(127);}}
-static void cleanup(const char *dir){const char *files[]={"new.AppImage","release.json","release.json.sig","public-key.pem","healthy","update-helper","transaction.json",NULL};char path[PATH_MAX];for(int i=0;files[i];i++){snprintf(path,sizeof(path),"%s/%s",dir,files[i]);unlink(path);}rmdir(dir);}
+static void cleanup(const char *dir){const char *files[]={"new.AppImage","release.json","release.json.sig","public-key.pem","healthy","update-helper","transaction.json","owner.json",NULL};char path[PATH_MAX];for(int i=0;files[i];i++){snprintf(path,sizeof(path),"%s/%s",dir,files[i]);unlink(path);}rmdir(dir);}
 int main(int argc,char **argv){
     if(argc==5&&!strcmp(argv[1],"verify")){size_t len=0;unsigned char *m=verified(argv[2],argv[3],argv[4],&len);if(!m)return 1;free(m);return 0;}
     if(argc!=11||strcmp(argv[1],"apply"))return 2;

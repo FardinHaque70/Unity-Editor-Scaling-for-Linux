@@ -211,6 +211,79 @@ def managed_image():
     return core._xdg('XDG_DATA_HOME', '.local/share') / private_store.APP_DIR / 'application.AppImage'
 
 
+def _boot_id():
+    value = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    if not re.fullmatch('[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', value):
+        raise UpdateError('Cannot establish the update process boot identity.')
+    return value
+
+
+def _process_start(pid):
+    # comm can contain whitespace and parentheses. Field22 follows the final
+    # closing parenthesis; a PID by itself is never enough after reuse/reboot.
+    fields = (Path('/proc') / str(pid) / 'stat').read_text().rsplit(')', 1)[1].split()
+    value = fields[19]
+    if not value.isdecimal():
+        raise UpdateError('Cannot establish the update process birth identity.')
+    return value
+
+
+def _cleanup_abandoned_downloads(target):
+    """Remove only verified dead-owner pre-helper stages, under helper lock."""
+    import stat
+    from .private_store import safe_root
+    removed = 0
+    boot = _boot_id()
+    for directory in target.parent.glob('.update-*'):
+        if (directory / 'transaction.json').exists() or not (directory / 'owner.json').exists():
+            continue
+        safe_root(directory)
+        ds = directory.lstat()
+        if not stat.S_ISDIR(ds.st_mode) or ds.st_uid != os.getuid() or ds.st_mode & 0o077:
+            raise UpdateError('Unsafe update staging directory; files were preserved.')
+        owner = directory / 'owner.json'
+        safe_root(owner)
+        metadata = owner.lstat()
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o022 or metadata.st_size > 2048):
+            raise UpdateError('Unsafe update owner record; files were preserved.')
+        value = _object(owner.read_bytes())
+        if (not isinstance(value, dict) or set(value) != {'schema', 'pid', 'boot_id', 'start_time', 'target'}
+                or type(value['schema']) is not int or value['schema'] != 1
+                or type(value['pid']) is not int or not 1 <= value['pid'] <= 2147483647
+                or not isinstance(value['boot_id'], str) or not re.fullmatch('[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', value['boot_id'])
+                or not isinstance(value['start_time'], str) or not value['start_time'].isdecimal()
+                or value['target'] != str(target)):
+            raise UpdateError('Invalid update owner record; files were preserved.')
+        if value['boot_id'] == boot:
+            try:
+                if _process_start(value['pid']) == value['start_time']:
+                    continue
+            except FileNotFoundError:
+                pass
+            except (PermissionError, ProcessLookupError):
+                # Unable to prove death: retain rather than interfere with a
+                # possible active downloader in another process namespace.
+                continue
+        allowed = {'owner.json', 'new.AppImage', 'release.json', 'release.json.sig',
+                   'public-key.pem', 'update-helper'}
+        children = list(directory.iterdir())
+        for child in children:
+            safe_root(child)
+            cs = child.lstat()
+            if (child.name not in allowed or not stat.S_ISREG(cs.st_mode)
+                    or cs.st_uid != os.getuid() or cs.st_mode & 0o022):
+                raise UpdateError('Unexpected files in abandoned update; files were preserved.')
+        for child in children:
+            child.unlink()
+        directory.rmdir()
+        removed += 1
+    if removed:
+        from .native_backend import _sync
+        _sync(target.parent)
+    return removed
+
+
 def prepare(release, *, target=None, transport=None, cancel=None, progress=None):
     target = Path(target or managed_image()).absolute()
     if not target.is_file() or target.is_symlink() or target.stat().st_uid != os.getuid():
@@ -218,6 +291,9 @@ def prepare(release, *, target=None, transport=None, cancel=None, progress=None)
     directory = Path(tempfile.mkdtemp(prefix='.update-', dir=target.parent))
     staged = directory / 'new.AppImage'
     try:
+        from .private_store import atomic_json
+        atomic_json(directory / 'owner.json', dict(schema=1, pid=os.getpid(),
+            boot_id=_boot_id(), start_time=_process_start(os.getpid()), target=str(target)))
         sha = hashlib.sha256()
         count = 0
         with (transport or GitHubTransport()).open(release.url) as response, staged.open('xb') as output:
@@ -338,11 +414,12 @@ def recover_interrupted_update(*, store=None, execute=None, verifier=None, prefl
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return {'state': 'active'}
+        abandoned = _cleanup_abandoned_downloads(target)
         candidates = [p for p in target.parent.glob('.update-*') if (p / 'transaction.json').exists()]
         if not candidates:
             if rollback.exists():
                 raise UpdateError('An update rollback has no recovery record. Its files were preserved; repair the managed installation before updating.')
-            return {'state': 'none'}
+            return {'state': 'none', 'abandoned_downloads_removed': abandoned}
         if len(candidates) != 1:
             raise UpdateError('Multiple update recovery records need inspection; no files were changed.')
         directory = safe_root(candidates[0])
@@ -394,7 +471,7 @@ def recover_interrupted_update(*, store=None, execute=None, verifier=None, prefl
             owned(healthy)
             acknowledged = healthy.stat().st_size == 64 and healthy.read_text() == value['token']
         allowed = {'new.AppImage', 'release.json', 'release.json.sig', 'public-key.pem',
-                   'healthy', 'update-helper', 'transaction.json'}
+                   'healthy', 'update-helper', 'transaction.json', 'owner.json'}
         if any(p.name not in allowed for p in directory.iterdir()):
             raise UpdateError('Unexpected files in update recovery directory; all files were preserved.')
         for p in directory.iterdir():

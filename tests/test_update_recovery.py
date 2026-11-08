@@ -131,4 +131,39 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(),self.old)
 
 
+class AbandonedDownloadTests(unittest.TestCase):
+    def owner(self, directory, target, *, boot=None, pid=None, start=None):
+        (directory / 'owner.json').write_text(json.dumps(dict(schema=1,
+            pid=os.getpid() if pid is None else pid,
+            boot_id=updates._boot_id() if boot is None else boot,
+            start_time=updates._process_start(os.getpid()) if start is None else start,
+            target=str(target))))
+        (directory / 'new.AppImage').write_bytes(b'interrupted partial download')
+
+    def test_active_owner_preserved_dead_or_reboot_reused_pid_cleaned(self):
+        with tempfile.TemporaryDirectory(prefix='unity-download-owner-') as temporary:
+            base=Path(temporary);target=base/'application.AppImage';target.write_bytes(b'working image')
+            store=SimpleNamespace(data_dir=base)
+            active=base/'.update-active';active.mkdir(mode=0o700);self.owner(active,target)
+            dead=base/'.update-dead';dead.mkdir(mode=0o700);self.owner(dead,target,pid=2147483647,start='1')
+            reboot=base/'.update-reboot';reboot.mkdir(mode=0o700)
+            self.owner(reboot,target,boot='00000000-0000-0000-0000-000000000000')
+            # Even the same numerical PID/start is stale across a different boot.
+            result=updates.recover_interrupted_update(store=store)
+            self.assertEqual(result,dict(state='none',abandoned_downloads_removed=2))
+            self.assertTrue(active.exists());self.assertFalse(dead.exists());self.assertFalse(reboot.exists())
+            self.assertEqual(target.read_bytes(),b'working image')
+
+    def test_unknown_or_unowned_stage_is_never_removed(self):
+        with tempfile.TemporaryDirectory(prefix='unity-download-unknown-') as temporary:
+            base=Path(temporary);target=base/'application.AppImage';target.write_bytes(b'working image')
+            stage=base/'.update-dead';stage.mkdir(mode=0o700)
+            self.owner(stage,target,pid=2147483647,start='1')
+            unknown=stage/'user-file';unknown.write_text('retain')
+            with self.assertRaises(updates.UpdateError):
+                updates.recover_interrupted_update(store=SimpleNamespace(data_dir=base))
+            self.assertTrue(unknown.exists());self.assertTrue((stage/'new.AppImage').exists())
+            self.assertEqual(target.read_bytes(),b'working image')
+
+
 if __name__ == '__main__':unittest.main()

@@ -25,18 +25,8 @@ export PATH="$prefix/bin:$PATH"
 export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:$prefix/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export GI_TYPELIB_PATH="$prefix/lib/girepository-1.0"
-python3 - "$project/packaging/sources.lock.json" "$work/sources" <<'PY'
-import hashlib,json,sys,urllib.request,tarfile
-from pathlib import Path
-items=json.loads(Path(sys.argv[1]).read_text());out=Path(sys.argv[2])
-for name,entry in items.items():
- target=out/(name+'.tar.xz');urllib.request.urlretrieve(entry['url'],target)
- if hashlib.sha256(target.read_bytes()).hexdigest()!=entry['sha256']:raise SystemExit('Source hash mismatch: '+name)
- with tarfile.open(target) as archive:
-  for member in archive.getmembers():
-   if member.name.startswith('/') or '..' in Path(member.name).parts:raise SystemExit('Unsafe source archive')
-  archive.extractall(out)
-PY
+python3 "$project/packaging/fetch_locked.py" "$project/packaging/sources.lock.json" "$work/sources" --extract
+
 build() { local name=$1; shift; local source; source=$(find "$work/sources" -mindepth 1 -maxdepth 1 -type d -name "$name-*" | head -1); meson setup "$work/build-$name" "$source" --prefix "$prefix" --libdir lib --buildtype release -Ddebug=false "$@"; ninja -C "$work/build-$name" -j2; ninja -C "$work/build-$name" install; }
 build glib -Dtests=false -Dinstalled_tests=false -Dgtk_doc=false -Dman=false -Dselinux=disabled -Dlibmount=disabled
 build gobject-introspection -Ddoctool=disabled
@@ -72,7 +62,20 @@ python3 "$project/packaging/collect_licenses.py" "$appdir" "$work/sources" "$pro
 find "$appdir" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$appdir" -type f \( -name '*.a' -o -name '*.la' -o -name '*.pyc' \) -delete
 rm -rf "$appdir/usr/include" "$appdir/usr/lib/pkgconfig" "$appdir/usr/share/doc" "$appdir/usr/share/man" "$appdir/usr/lib/python3.10/test" "$appdir/usr/lib/python3.10/idlelib" "$appdir/usr/lib/python3.10/ensurepip" "$appdir/usr/share/gtk-doc"
-find "$appdir" -type f -name '*.so*' -exec strip --strip-unneeded {} + || true
+# Host tooling must not load or rewrite the same bundled libraries it uses.
+unset LD_LIBRARY_PATH PKG_CONFIG_PATH GI_TYPELIB_PATH
+rm -rf "$appdir/usr/share/gdb" "$appdir/usr/share/glib-2.0/codegen" "$appdir/usr/share/glib-2.0/gettext"
+python3 - "$appdir" <<'PYSTRIP'
+from pathlib import Path
+import subprocess,sys
+seen=set()
+for path in Path(sys.argv[1]).rglob('*'):
+ if not path.is_file() or path.resolve() in seen:continue
+ with path.open('rb') as stream:is_elf=stream.read(4)==b'\x7fELF'
+ if is_elf:
+  seen.add(path.resolve())
+  subprocess.run(['strip','--strip-unneeded',str(path)],check=True)
+PYSTRIP
 cp "$root/resources/io.github.unityscale.UnityScale.svg" "$appdir/io.github.unityscale.UnityScale.svg"
 cat > "$appdir/io.github.unityscale.UnityScale.desktop" <<'EOF'
 [Desktop Entry]
@@ -84,14 +87,8 @@ Categories=Development;
 Terminal=false
 StartupWMClass=io.github.unityscale.UnityScale
 EOF
-python3 - "$project/packaging/tools.lock.json" "$work" <<'PY'
-import hashlib,json,sys,urllib.request
-from pathlib import Path
-for name,entry in json.loads(Path(sys.argv[1]).read_text()).items():
- path=Path(sys.argv[2])/name;urllib.request.urlretrieve(entry['url'],path)
- if hashlib.sha256(path.read_bytes()).hexdigest()!=entry['sha256']:raise SystemExit('Tool hash mismatch: '+name)
- path.chmod(0o755)
-PY
+python3 "$project/packaging/fetch_locked.py" "$project/packaging/tools.lock.json" "$work"
+
 # Native .so and ELF hashes in the prebuilt manifest must describe shipped bytes.
 python3 - "$root/native/prebuilt" <<'PY'
 from pathlib import Path

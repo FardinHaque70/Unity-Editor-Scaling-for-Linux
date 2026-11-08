@@ -34,6 +34,7 @@ jobs:
           (cd "$RUNNER_TEMP/artifact-gtk" && "$GITHUB_WORKSPACE/dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage" --appimage-extract >/dev/null)
           python3 qa/run_checks.py --appdir "$RUNNER_TEMP/artifact-gtk/squashfs-root" --output dist/gtk-evidence
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: appimage-x86_64
           path: dist/Unity-Editor-Scaling-for-Linux-x86_64.AppImage
