@@ -25,6 +25,11 @@ gi.require_version("Gsk", "4.0")
 gi.require_version("Graphene", "1.0")
 from gi.repository import Adw, GLib, Graphene, Gsk, Gtk
 from unity_scale import core
+# This suite exercises widgets with inert Editor files, not native delivery.
+# Native integration has its own compiled fixtures and real-Unity acceptance.
+from unittest.mock import patch
+_ui_native_stub = patch('unity_scale.native_backend.ensure_connected', return_value={'connected': True})
+_ui_native_stub.start()
 from unity_scale.gui import UnityScaleApplication, UnityScaleWindow
 
 OUTPUT = Path(os.environ["QA_OUTPUT"])

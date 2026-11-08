@@ -11,6 +11,8 @@ mkdir -p "$root" "$appdir/usr/bin" "$appdir/usr/lib/python3.10/site-packages" "$
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$project" log -1 --format=%ct)}
 # The only native runtime dependencies deliberately left on the host are those
 # already needed by the supported Unity Editor (GTK3/GLib/X11 and base libc).
+# Generated best-effort diagnostic writes intentionally ignore short/error returns.
+export STATIC_DEPS_CFLAGS='-Wno-error=unused-result'
 export STATIC_DEPS_LIBS='-Wl,-Bstatic -ljson-c -lcrypto -Wl,-Bdynamic -ldl -lpthread -lz -lm -Wl,--exclude-libs,ALL'
 mkdir -p "$root/native/prebuilt"
 python3 "$project/native/product/build.py" --output "$root/native/prebuilt/native-v2.so"
