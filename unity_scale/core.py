@@ -230,7 +230,8 @@ def diagnostics():
                 "native_startup": {"requires_verified_setup": True, "restart_required": True,
                     "supported_editor": "6000.3.27f2", "supported_elf_sha256":
                     "d5e670eab13daa0962126f61354041a1077757a7d2ecb3f3eaff5ac859cbbbec",
-                    "custom_scope": "KDE Wayland / X11 GTK / OpenGL", "default_is_stock": True,
+                    "custom_scope": "KDE Wayland / X11 GTK", "renderer_policy": "Unity-controlled",
+                    "locally_tested_graphics_apis": ["OpenGL Core", "Vulkan"], "default_is_stock": True,
                     "physical_input_verified": False, "performance_verified": False}},
             "environment": environment_status(),
             "system": {"platform": platform.system(), "architecture": platform.machine()},

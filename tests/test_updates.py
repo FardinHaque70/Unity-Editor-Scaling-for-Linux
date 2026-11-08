@@ -214,13 +214,27 @@ class BootstrapTests(unittest.TestCase):
     def test_host_environment_removes_old_mount(self):
         with patch.dict('os.environ', {'APPDIR': '/old/mount', 'PYTHONHOME': '/old/python',
                 'LD_LIBRARY_PATH': '/old/lib', 'UNITY_SCALE_HOST_LD_LIBRARY_PATH': '/host/lib',
-                'UNITY_SCALE_HOST_PATH': '/host/bin', 'UNITY_SCALE_HOST_XDG_DATA_DIRS': '/host/share'}):
+                'UNITY_SCALE_HOST_PATH': '/host/bin', 'UNITY_SCALE_HOST_XDG_DATA_DIRS': '/host/share',
+                'FONTCONFIG_FILE': '/old/mount/fonts.conf', 'FONTCONFIG_PATH': '/old/mount/fonts',
+                'UNITY_SCALE_HOST_FONTCONFIG_FILE': '/host/fonts.conf', 'UNITY_SCALE_HOST_FONTCONFIG_PATH': '/host/fonts'}):
             env = updates.host_environment()
             self.assertNotIn('APPDIR', env)
             self.assertNotIn('PYTHONHOME', env)
             self.assertEqual(env['LD_LIBRARY_PATH'], '/host/lib')
             self.assertEqual(env['PATH'], '/host/bin')
             self.assertEqual(env['XDG_DATA_DIRS'], '/host/share')
+            self.assertEqual(env['FONTCONFIG_FILE'], '/host/fonts.conf')
+            self.assertEqual(env['FONTCONFIG_PATH'], '/host/fonts')
+            self.assertNotIn('UNITY_SCALE_HOST_FONTCONFIG_FILE', env)
+            self.assertNotIn('UNITY_SCALE_HOST_FONTCONFIG_PATH', env)
+
+    def test_unset_host_fontconfig_does_not_leak_bundled_configuration(self):
+        with patch.dict('os.environ', {'FONTCONFIG_FILE': '/old/mount/fonts.conf',
+                'FONTCONFIG_PATH': '/old/mount/fonts', 'UNITY_SCALE_HOST_FONTCONFIG_FILE': '',
+                'UNITY_SCALE_HOST_FONTCONFIG_PATH': ''}):
+            environment = updates.host_environment()
+            self.assertNotIn('FONTCONFIG_FILE', environment)
+            self.assertNotIn('FONTCONFIG_PATH', environment)
 
     def test_invalid_cli_scale_never_connects_an_editor(self):
         from unity_scale.__main__ import main

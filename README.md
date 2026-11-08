@@ -10,11 +10,13 @@ Adjust Unity Editor's UI scale independently of your desktop. Each Editor has on
 
 ## Supported setup
 
-**Unity 6000.3.27f2 · Linux x86_64 · KDE Plasma Wayland · OpenGL**
+**Unity 6000.3.27f2 · Linux x86_64 · KDE Plasma Wayland**
 
-The native backend accepts one exact Unity executable build. The Editor installation must be owned and writable by your user, with no spaces or colons in its path. The AppImage itself can be in a path containing spaces. Root-owned Editors, other Unity builds, other desktops, Vulkan and live scaling are outside this release.
+The native backend accepts one exact Unity executable build. The Editor installation must be owned and writable by your user, with no spaces or colons in its path. The AppImage itself can be in a path containing spaces. Root-owned Editors, other Unity builds, other desktops and live scaling are outside this release.
 
 Local development used CachyOS, KDE Plasma Wayland, an NVIDIA RTX 4080 and a 4K display, with desktop scale at 145% and Unity at 150%. Other hardware and workloads need further testing. See [validation and limitations](docs/VALIDATION.md).
+
+The tool changes UI scale. Unity and the developer retain control of graphics APIs, render pipelines, project settings and launch arguments. OpenGL Core and Vulkan have local test evidence; that is coverage information, not a renderer restriction. When the native adapter cannot safely apply scaling before patching, it skips custom scaling and lets Unity continue.
 
 ## Install and use
 

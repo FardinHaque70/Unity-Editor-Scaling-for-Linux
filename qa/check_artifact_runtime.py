@@ -66,6 +66,23 @@ def main():
             assert report['display_opened'] is False and report['installation_changed'] is False
             result['runtime'] = report
             result['checks'].append('extract-and-run with spaced/relocated path and no display')
+            # A source checkout or user Python customization must not replace
+            # any bundled application/runtime module before main() is reached.
+            poison = root / 'poisoned launch working directory';poison.mkdir()
+            sentinel = root / 'POISON_EXECUTED'
+            malicious = ('from pathlib import Path\nPath(' + repr(str(sentinel)) +
+                         ').write_text("untrusted Python executed")\nraise RuntimeError("poisoned launch environment")\n')
+            package = poison / 'unity_scale';package.mkdir()
+            (package / '__init__.py').write_text(malicious)
+            (poison / 'sitecustomize.py').write_text(malicious)
+            userbase = root / 'poisoned Python user base'
+            usersite = userbase / 'lib/python3.10/site-packages';usersite.mkdir(parents=True)
+            (usersite / 'sitecustomize.py').write_text(malicious)
+            (usersite / 'usercustomize.py').write_text(malicious)
+            env['PYTHONUSERBASE'] = str(userbase)
+            isolated = json_output(run([moved, '--appimage-extract-and-run', '--self-test'], cwd=poison))
+            assert isolated['healthy'] and not sentinel.exists()
+            result['checks'].append('isolated imports from poisoned CWD and Python user site')
             assert not any(home.iterdir()), 'Self-test wrote user configuration or installed itself'
             run([moved, '--appimage-extract'])
             apprun = root / 'squashfs-root/AppRun'

@@ -76,12 +76,12 @@ def main():
             # application files stay untouched. The worker imports packaged
             # application code, while its inert fixtures live outside it.
             original = (appdir / "AppRun").read_text()
-            final = '\"$APPDIR/usr/bin/python3.10\" -m unity_scale \"$@\"'
+            final = '"$APPDIR/usr/bin/python3.10" -S -c \'import sys; sys.path = [p for p in sys.path if p]; sys.argv[0] = "unity-scale"; from unity_scale.__main__ import main; raise SystemExit(main())\' "$@"'
             if original.count(final) != 1:
                 raise RuntimeError("Unknown AppRun contract for artifact QA")
             env.update(APPDIR=str(appdir), QA_APP_ROOT=str(appdir / "usr/share/unity-editor-scaling"))
             wrappers = []
-            for name, command in (("python", '\"$APPDIR/usr/bin/python3.10\" \"$@\"'),
+            for name, command in (("python", '\"$APPDIR/usr/bin/python3.10\" -S \"$@\"'),
                                   ("broadway", '\"$APPDIR/usr/bin/gtk4-broadwayd\" \"$@\"')):
                 wrapper = root / (name + "-runtime.sh")
                 wrapper.write_text(original.replace(final, command))

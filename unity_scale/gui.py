@@ -664,7 +664,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
     def about(self):
         dialog = Adw.AboutWindow(transient_for=self, application_name=core.APP_NAME,
             application_icon=core.ICON_NAME, version=core.VERSION, developer_name='Fardin Haque and contributors',
-            comments='Native startup scaling prerelease for Unity 6000.3.27f2 on KDE Wayland with OpenGL. Restart Unity after changes. Running scale and physical-input/performance acceptance are not verified by this app.')
+            comments='UI scaling for Unity 6000.3.27f2 on KDE Wayland. Unity controls the graphics API and render pipeline. Restart Unity after scale changes. Running scale and physical-input/performance acceptance are not verified by this app.')
         dialog.present()
 
 

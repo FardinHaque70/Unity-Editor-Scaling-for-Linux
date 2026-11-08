@@ -84,11 +84,11 @@ def main():
                    XDG_RUNTIME_DIR=str(runtime), APPIMAGE_EXTRACT_AND_RUN='1',
                    PYTHONDONTWRITEBYTECODE='1')
         original = (appdir / 'AppRun').read_text()
-        final = '"$APPDIR/usr/bin/python3.10" -m unity_scale "$@"'
+        final = '"$APPDIR/usr/bin/python3.10" -S -c \'import sys; sys.path = [p for p in sys.path if p]; sys.argv[0] = "unity-scale"; from unity_scale.__main__ import main; raise SystemExit(main())\' "$@"'
         if original.count(final) != 1:
             raise RuntimeError('Unknown AppRun QA contract')
         python_wrapper = root / 'python-runtime.sh'
-        python_wrapper.write_text(original.replace(final, '"$APPDIR/usr/bin/python3.10" "$@"'))
+        python_wrapper.write_text(original.replace(final, '"$APPDIR/usr/bin/python3.10" -S "$@"'))
         python_wrapper.chmod(0o700)
         broadway_wrapper = root / 'broadway-runtime.sh'
         broadway_wrapper.write_text(original.replace(final, '"$APPDIR/usr/bin/gtk4-broadwayd" "$@"'))

@@ -383,7 +383,7 @@ def host_environment():
                 'GIO_MODULE_DIR', 'GIO_EXTRA_MODULES', 'GTK_DATA_PREFIX', 'GSETTINGS_SCHEMA_DIR', 'SSL_CERT_FILE',
                 'GDK_PIXBUF_MODULEDIR', 'GDK_PIXBUF_MODULE_FILE'):
         environment.pop(key, None)
-    for key in ('LD_LIBRARY_PATH', 'PATH', 'XDG_DATA_DIRS'):
+    for key in ('LD_LIBRARY_PATH', 'PATH', 'XDG_DATA_DIRS', 'FONTCONFIG_FILE', 'FONTCONFIG_PATH'):
         saved = environment.pop('UNITY_SCALE_HOST_' + key, None)
         if saved:
             environment[key] = saved

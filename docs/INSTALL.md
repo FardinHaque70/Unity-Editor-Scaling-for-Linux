@@ -4,13 +4,15 @@
 
 The release AppImage targets Linux x86_64 with an Ubuntu 22.04 glibc baseline. Python, PyGObject, GTK 4 and libadwaita are bundled; compilers, Python packages and development headers are not required on the user's computer. Your operating system still supplies its base C runtime, display server, graphics drivers and the runtime dependencies required by Unity itself.
 
-Native scaling supports the exact **Unity 6000.3.27f2 Linux x86_64** executable on **KDE Plasma Wayland**, with Unity using **GTK 3 over X11/Xwayland and OpenGL**. Local trials explicitly used `-force-glcore`; the scaling launcher does not select a graphics renderer. The original executable must match:
+Native scaling supports the exact **Unity 6000.3.27f2 Linux x86_64** executable on **KDE Plasma Wayland**, with Unity using **GTK 3 over X11/Xwayland**. The scaling launcher preserves your launch arguments and has no graphics API or render-pipeline policy. Local trials covered OpenGL Core and Vulkan; these are tested paths, not a list of permitted renderer choices. The original executable must match:
 
 ```text
 d5e670eab13daa0962126f61354041a1077757a7d2ecb3f3eaff5ac859cbbbec
 ```
 
-The installation must be owned and writable by your user. Editor paths containing whitespace or a colon are refused because of native preload path constraints. The AppImage's own location may contain spaces. Root-owned installations, other Unity builds, other desktop sessions and renderers are unsupported. Do not run this app with `sudo`.
+The installation must be owned and writable by your user. Editor paths containing whitespace or a colon are refused because of native preload path constraints. The AppImage's own location may contain spaces. Root-owned installations, other Unity builds and other desktop sessions are outside this scaling adapter's current compatibility. These limits govern applying custom scaling, not which Unity features developers may use. Do not run this app with `sudo`.
+
+Choose graphics APIs and render pipelines through Unity as usual. The scaling app neither adds renderer flags nor rejects them. Its current native window adapter uses Unity's X11/Xwayland path; native Wayland scaling is outside this adapter. See [Vulkan validation](VALIDATION.md#vulkan-validation--8-november-2026) for the tested setup and limits.
 
 ## First launch
 

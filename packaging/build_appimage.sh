@@ -53,6 +53,15 @@ mkdir -p "$appdir/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders"
 cp -a /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-svg.so "$appdir/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/"
 cp -L /usr/bin/gdk-pixbuf-query-loaders "$appdir/usr/bin/" 2>/dev/null || cp -L /usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders "$appdir/usr/bin/"
 cp -a /usr/share/glib-2.0/schemas/*.xml "$appdir/usr/share/glib-2.0/schemas/"
+# Use matching Fontconfig configuration, while discovering host/user fonts.
+# Host distributions can ship syntax newer than Ubuntu22's bundled library.
+mkdir -p "$appdir/usr/etc/fonts/conf.d" "$appdir/usr/share/fonts/truetype/dejavu"
+cp -L /etc/fonts/fonts.conf "$appdir/usr/etc/fonts/fonts.conf"
+cp -L /etc/fonts/conf.d/*.conf "$appdir/usr/etc/fonts/conf.d/"
+# Host/user configuration may use newer syntax; host font files remain visible.
+rm -f "$appdir/usr/etc/fonts/conf.d/50-user.conf" "$appdir/usr/etc/fonts/conf.d/51-local.conf"
+cp /usr/share/fonts/truetype/dejavu/*.ttf "$appdir/usr/share/fonts/truetype/dejavu/"
+
 "$prefix/bin/glib-compile-schemas" "$appdir/usr/share/glib-2.0/schemas"
 # Keep runtime entry points only; GNOME code generators and test tools belong
 # in the ephemeral builder, not the distributed application.

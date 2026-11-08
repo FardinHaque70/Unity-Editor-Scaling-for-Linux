@@ -97,8 +97,7 @@ __attribute__((constructor))static void init(void){
  if(!mode)return; /* Keep only the neutral loader for fresh OpenProject reread. */
  int session=nsp_custom_session();
  if(session==-1)die("custom scaling currently supports KDE Wayland with a valid DISPLAY only");
- if(session==-2)die("custom scaling with an unverified forced renderer is unsupported");
- if(session)die("custom renderer/session admission could not be verified");
+ if(session)die("custom scaling session could not be verified");
  if(!mapped_library||nsp_has_foreign_preload(mapped_library)!=0)die("custom scaling with foreign preload is unsupported");
  DIR *tasks=opendir("/proc/self/task");if(!tasks)die("thread inventory");unsigned thread_count=0;struct dirent *de;while((de=readdir(tasks)))if(de->d_name[0]!='.')++thread_count;closedir(tasks);if(thread_count!=1)die("requires pristine single-threaded launch");
  hash_guard();dl_iterate_phdr(locate,NULL);if(!image)die("PIE base");

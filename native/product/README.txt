@@ -53,7 +53,12 @@ The launcher validates its activation before executing any role of the original.
 Settings/public-editor environment metadata may only redundantly match the
 validated descriptor. There is one authoritative settings read per GUI process.
 Default retains the neutral loader for fresh OpenProject policy reads. Custom
-keeps the accepted KDE Wayland/X11 GTK/OpenGL, thread, exact SHA and byte guards.
+keeps the KDE Wayland/X11 GTK, thread, exact SHA and byte guards. OpenGL Core
+and Vulkan share the guarded GUIViewPlatform/GfxWindow geometry boundary on
+this build. Graphics APIs and render pipelines are Unity's decision: there is
+no renderer argument allowlist or denylist. The launcher never adds or changes
+graphics API arguments. An unsupported native session skips scaling before
+patching and lets Unity continue with its inherited host environment.
 No live scale setter, production sampling timer or global desktop change exists.
 Post-commit failure exits126; no partial native install may continue.
 
@@ -74,6 +79,7 @@ Offline verification (never starts Unity):
   python3 native/product/constructor_check.py --library FRESH_BUILT_LIBRARY
   python3 native/product/launcher_check.py
   python3 native/product/repaint_check.py
+  python3 native/product/environment_check.py
 check.py covers1212 input payloads and110 authoritative policy cases. Constructor
 checks exercise the actual artifact in inert hosts, including helper/foreign
 host restoration, metadata refusal and unavailable settled-query rejection.
@@ -82,6 +88,8 @@ using inert ELF fixtures with a test-copy-only original digest substitution;
 production artifacts contain no digest override. Repaint checks retain real
 GObject signals and mocked native callees for queueing, retirement, birth reuse
 and weak widget lifetime. These checks do not prove actual Unity presentation.
+environment_check.py exercises40 real argv/session combinations, including
+renderer flags passed through to Unity and unsupported scaling sessions.
 
 native/legacy-launcher-v1.c preserves the prior launcher solely for legacy
 migration fixtures; it is not the product-profile-v2 shipped launcher.

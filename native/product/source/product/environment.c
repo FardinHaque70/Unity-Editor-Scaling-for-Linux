@@ -2,7 +2,6 @@
 #include "environment.h"
 #include "../deps/native_scope_guard.h"
 #include <ctype.h>
-#include <strings.h>
 #include <sys/stat.h>
 
 static int own(const char*token,const char*library){
@@ -36,21 +35,9 @@ int nsp_custom_session(void){
  if(!session||strcmp(session,"wayland")||!desktop||strnlen(desktop,513)>512||!display||!*display||strnlen(display,257)>256)return -1;
  char names[513];strcpy(names,desktop);char*cursor=names,*part;int kde=0;
  while((part=strsep(&cursor,":")))if(!strcmp(part,"KDE"))kde=1;
- if(!kde)return -1;
- int fd=open("/proc/self/cmdline",O_RDONLY|O_CLOEXEC);if(fd<0)return -3;
- char*args=malloc(4u*1024u*1024u+1u);if(!args){close(fd);return -3;}
- size_t n=0;int result=0;
- while(n<4u*1024u*1024u){ssize_t got=read(fd,args+n,4u*1024u*1024u-n);if(got<0&&errno==EINTR)continue;if(got<0){result=-3;break;}if(!got)break;n+=(size_t)got;}
- close(fd);
- if(!result&&(!n||n==4u*1024u*1024u||args[n-1]))result=-3;
- if(!result)for(size_t i=0;i<n;){
-  const char*a=args+i;size_t length=strlen(a);
-  static const char*unsupported[]={"-force-vulkan","-forceVulkan","-force-gles","-force-gles30","-force-d3d9","-force-d3d11","-force-d3d12","-force-metal","-force-glcore32","-force-glcore33","-force-glcore40","-force-glcore41","-force-glcore42","-force-glcore43","-force-glcore44","-force-clamped"};
-  for(size_t j=0;j<sizeof unsupported/sizeof*unsupported;j++)if(!strcasecmp(a,unsupported[j])){result=-2;break;}
-  if(result)break;
-  i+=length+1;
- }
- free(args);return result;
+ /* Session checks protect the native window adapter only. Graphics APIs,
+  * render pipelines and launch arguments remain entirely Unity's decision. */
+ return kde?0:-1;
 }
 
 int nsp_open_receipt(const char*prefix,char*actual,size_t capacity){

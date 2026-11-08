@@ -141,9 +141,10 @@ static void start_environment(void){
         "GIO_MODULE_DIR","GIO_EXTRA_MODULES","GTK_DATA_PREFIX","GSETTINGS_SCHEMA_DIR","SSL_CERT_FILE",
         "GDK_PIXBUF_MODULEDIR","GDK_PIXBUF_MODULE_FILE",NULL};
     for(int i=0;keys[i];i++)unsetenv(keys[i]);
-    const char *names[]={"LD_LIBRARY_PATH","PATH","XDG_DATA_DIRS"};
-    const char *saved[]={"UNITY_SCALE_HOST_LD_LIBRARY_PATH","UNITY_SCALE_HOST_PATH","UNITY_SCALE_HOST_XDG_DATA_DIRS"};
-    for(int i=0;i<3;i++){
+    const char *names[]={"LD_LIBRARY_PATH","PATH","XDG_DATA_DIRS","FONTCONFIG_FILE","FONTCONFIG_PATH"};
+    const char *saved[]={"UNITY_SCALE_HOST_LD_LIBRARY_PATH","UNITY_SCALE_HOST_PATH","UNITY_SCALE_HOST_XDG_DATA_DIRS",
+        "UNITY_SCALE_HOST_FONTCONFIG_FILE","UNITY_SCALE_HOST_FONTCONFIG_PATH"};
+    for(int i=0;i<5;i++){
       const char *value=getenv(saved[i]);
       if(value&&*value)setenv(names[i],value,1);else if(i!=1)unsetenv(names[i]);
       unsetenv(saved[i]);

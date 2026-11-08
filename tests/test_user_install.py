@@ -367,6 +367,8 @@ class UpdateHelperAncestorTests(unittest.TestCase):
                 'sys.path.insert(0,' + repr(str(source.parents[1])) + ')\n'
                 'from unity_scale.private_store import Store\nfrom unity_scale.user_install import _app_closed\n'
                 'os.environ["APPIMAGE"]=' + repr(str(target)) + '\n'
+                'assert os.environ.get("FONTCONFIG_FILE")=="/host/fonts.conf"\n'
+                'assert os.environ.get("FONTCONFIG_PATH")=="/host/fonts"\n'
                 'try:\n _app_closed(Store(' + repr(str(store.root)) + '))\n'
                 'except Exception as exc:\n Path(' + repr(str(outcome)) + ').write_text(str(exc));raise\n'
                 'Path(' + repr(str(outcome)) + ').write_text("installer accepted")\n'
@@ -379,8 +381,11 @@ class UpdateHelperAncestorTests(unittest.TestCase):
             subprocess.run(['openssl','genpkey','-algorithm','ED25519','-out',str(private)],check=True,capture_output=True)
             subprocess.run(['openssl','pkey','-in',str(private),'-pubout','-out',str(public)],check=True,capture_output=True)
             subprocess.run(['openssl','pkeyutl','-sign','-rawin','-inkey',str(private),'-in',str(manifest),'-out',str(signature)],check=True,capture_output=True)
+            environment = dict(os.environ, FONTCONFIG_FILE='/old/mount/fonts.conf', FONTCONFIG_PATH='/old/mount/fonts',
+                UNITY_SCALE_HOST_FONTCONFIG_FILE='/host/fonts.conf', UNITY_SCALE_HOST_FONTCONFIG_PATH='/host/fonts')
             result = subprocess.run([str(helper),'apply','2147483647',str(target),str(candidate),str(manifest),
-                str(signature),str(public),str(stage / 'healthy'),'a'*64,'0.5.0'],timeout=10,check=False,capture_output=True)
+                str(signature),str(public),str(stage / 'healthy'),'a'*64,'0.5.0'],timeout=10,check=False,capture_output=True,
+                env=environment)
             self.assertEqual(result.returncode,0, result.stderr.decode(errors='replace'))
             self.assertEqual(outcome.read_text(),'installer accepted')
             self.assertEqual(target.read_bytes(),program)
@@ -393,8 +398,17 @@ class UpdateHelperAncestorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='unity-helper-unrelated-') as directory:
             store = Store(Path(directory) / 'isolated')
             target = store.data_dir / 'application.AppImage'
-            child = subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)',str(target)])
+            import time
+            ready = Path(directory) / 'ready'
+            child = subprocess.Popen([sys.executable,'-c',
+                'import sys,time;from pathlib import Path;Path(sys.argv[2]).write_text("ready");time.sleep(30)',
+                str(target), str(ready)])
             try:
+                deadline = time.monotonic() + 3
+                while not ready.exists():
+                    if child.poll() is not None or time.monotonic() > deadline:
+                        self.fail('Unrelated process did not become ready')
+                    time.sleep(0.01)
                 with self.assertRaisesRegex(core.AppError,'Close the scaling'):
                     user_install._app_closed(store)
             finally:

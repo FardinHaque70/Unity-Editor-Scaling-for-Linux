@@ -16,7 +16,7 @@ import urllib.request
 
 APP_ROOT = Path('usr/share/unity-editor-scaling')
 STATIC_PACKAGES = ('libssl-dev', 'libjson-c-dev', 'libc6-dev', 'zlib1g-dev')
-PYTHON_PACKAGES = ('python3.10-minimal', 'libpython3.10-minimal', 'libpython3.10-stdlib', 'python3-cairo', 'ca-certificates')
+PYTHON_PACKAGES = ('python3.10-minimal', 'libpython3.10-minimal', 'libpython3.10-stdlib', 'python3-cairo', 'ca-certificates', 'fontconfig-config', 'fonts-dejavu-core')
 
 
 def digest(path):
