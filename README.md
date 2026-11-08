@@ -4,6 +4,8 @@ Make Unity Editor easier to read on high-DPI Linux displays, with a scale settin
 
 **Development prerelease · Unity 6000.3.27f2 · Linux x86_64 · KDE Wayland · OpenGL**
 
+![Standalone settings app with Custom scale set to 150%](https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/standalone-app.png)
+
 ## Tested setup
 
 | System | Display | Preferred Editor scale |
