@@ -47,6 +47,7 @@ Help implementing compatibility and verifying other environments is welcome. Cha
 - [x] **Custom 160%** — measured UI scale and a captured main Editor window; separate scoped resize/rendering/reload checks. Full physical-input coverage at 160% is untested.
 - [ ] **Complete 100–200% coverage** — not established; accepting a percentage in settings is not proof that every workflow works at that value.
 - [ ] **Live default-layout reload during startup at 160%** — one capture-preparation attempt logged a destroyed-toolbar `MissingReferenceException`; cause not isolated. The 160% comparison capture shows this error; error-free operation is not established for this action.
+- [ ] **Startup with a supplied default layout at 160%** — one follow-up stalled before fixture readiness and exited with SIGSEGV (-11) after a termination request; cause unresolved.
 - [ ] **Physical docking and mixed-DPI monitor transitions** — not established.
 - [ ] **Performance and input/presentation latency benchmarks** — not established.
 

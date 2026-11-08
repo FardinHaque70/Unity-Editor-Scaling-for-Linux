@@ -65,6 +65,13 @@
       "error": "MissingReferenceException: UnityEditor.Toolbar was destroyed",
       "visible_in_after_capture": true,
       "cause": "Not isolated; no claim that the backend or fixture caused it exclusively."
+    },
+    {
+      "percent": 160,
+      "condition": "Separate follow-up with Default layout supplied before startup",
+      "result": "Stalled before fixture readiness; exited with SIGSEGV (-11) after termination request",
+      "counted_as_pass": false,
+      "cause": "Unresolved; not isolated from capture setup or termination."
     }
   ]
 }
