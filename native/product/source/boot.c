@@ -23,7 +23,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <dirent.h>
-#include "config.generated.h"
+#include "product/activation.h"
 #include "rendering/render_boundary.h"
 #include "rb-addresses.generated.h"
 #include "guards.generated.h"
@@ -45,16 +45,13 @@ static int locate(struct dl_phdr_info *i,size_t n,void *p){(void)n;(void)p;if(!i
 static void jump(void *to,void *target){unsigned char p[14]={0xff,0x25,0,0,0,0};memcpy(p+6,&target,8);memcpy(to,p,14);}
 static void page(uintptr_t va,size_t len,int prot){uintptr_t a=(image+va)&~(uintptr_t)4095,b=(image+va+len+4095)&~(uintptr_t)4095;if(mprotect((void*)a,b-a,prot))die("code protection");}
 static void hash_guard(void){
- int fd=open(V6_ELF,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);struct stat st;
- if(fd<0||fstat(fd,&st)||!S_ISREG(st.st_mode))die("private ELF must be regular");
- struct stat own,installed;if(stat("/proc/self/exe",&own)||own.st_dev!=st.st_dev||own.st_ino!=st.st_ino)die("running ELF differs from configured private path");
- if(!stat(NS_PUBLIC_EDITOR,&installed)&&own.st_dev==installed.st_dev&&own.st_ino==installed.st_ino)die("public launcher is not the allowed original ELF target");
- void *p=mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);if(p==MAP_FAILED)die("hash mmap");
- void *c=dlopen("libcrypto.so.3",RTLD_NOW|RTLD_LOCAL);if(!c)die("libcrypto");
- unsigned char *(*sha)(const unsigned char*,size_t,unsigned char*)=dlsym(c,"SHA256");
- unsigned char digest[32];char hex[65];if(!sha||!sha(p,st.st_size,digest))die("hash");
- for(int i=0;i<32;i++)snprintf(hex+2*i,3,"%02x",digest[i]);
- munmap(p,st.st_size);close(fd);dlclose(c);if(strcmp(hex,V6_SHA))die("ELF identity");
+ const nsa_config *config=nsa_current();struct stat running,target,public;
+ if(stat("/proc/self/exe",&running)||lstat(config->target_exe,&target)||
+    !S_ISREG(target.st_mode)||running.st_dev!=target.st_dev||running.st_ino!=target.st_ino)
+  die("running ELF differs from validated original path");
+ if(lstat(config->public_editor,&public)||(running.st_dev==public.st_dev&&running.st_ino==public.st_ino))
+  die("public launcher is not the allowed original ELF target");
+ if(nsa_hash(config->target_exe,NSA_ORIGINAL_SHA))die("ELF identity");
 }
 static void *near_page(uintptr_t va){
  uintptr_t anchor=(image+va)&~(uintptr_t)4095;
@@ -82,7 +79,8 @@ __attribute__((constructor))static void init(void){
  /* Inherited custom GDK state must be undone even for helpers, foreign
   * processes, Default or a later policy/ELF refusal. No GTK call before this. */
  int host_rc=ups_restore_host_env_json(getenv(UPS_HOST_ENV_KEY));
- struct usg_result scope=usg_current_scope(V6_ELF);
+ nsa_config activation;int paths_rc=nsa_paths(mapped_library,0,&activation);
+ struct usg_result scope=usg_current_scope(paths_rc?"/__unity_scaling_invalid_package__":activation.target_exe);
  if(scope.scope==USG_FOREIGN||scope.scope==USG_BYPASS){
   if(host_rc!=UPS_OK&&(scope.scope==USG_BYPASS||getenv(UPS_HOST_ENV_KEY)))dprintf(2,"Unity scaling: host environment restoration refused (%d); bypassed without scaling.\n",host_rc);
   if(mapped_library&&nsp_strip_own_preload(mapped_library))dprintf(2,"Unity scaling: owned preload removal failed; bypassed without scaling.\n");
@@ -91,6 +89,8 @@ __attribute__((constructor))static void init(void){
  if(setjmp(rejection))return;
  if(host_rc!=UPS_OK)die("host environment envelope refused; no scaling installed");
  if(scope.scope!=USG_GUI_CANDIDATE)die(scope.reason);
+ if(paths_rc||nsa_validate(&activation))die("runtime activation refused");
+ nsa_use(&activation);
  if(sysconf(_SC_PAGESIZE)!=4096)die("page size");
  int mode=ns_initialize();ns_bootstrap(0);
  if(mode<0)die("authoritative product profile refused");

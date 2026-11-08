@@ -1,12 +1,15 @@
 #include "startup.h"
 #include "config.generated.h"
+#include "product/activation.h"
+static nsa_config config;
+extern "C" const nsa_config *nsa_current(void){return &config;}
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
 int main(int argc,char**argv){
- assert(argc==3);int rc=ns_initialize();
+ assert(argc==3);strcpy(config.settings,NS_SETTINGS_FILE);strcpy(config.public_editor,NS_PUBLIC_EDITOR);int rc=ns_initialize();
  if(!strcmp(argv[1],"refuse")){assert(rc<0);ep_snapshot s;assert(v6_conversion_snapshot(&s)==EP_GATE);return 0;}
  ep_snapshot s;assert(!v6_conversion_snapshot(&s));const bool custom=!strcmp(argv[1],"custom");
  assert(rc==(custom?1:0)&&s.mode==(custom?EP_CUSTOM:EP_DEFAULT));

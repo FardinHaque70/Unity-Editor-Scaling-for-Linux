@@ -1,4 +1,4 @@
-"""One app-owned profile document, isolated from production XDG settings."""
+"""Locked, atomic per-user profiles, independent of the application image."""
 from contextlib import contextmanager
 import copy
 import fcntl
@@ -9,6 +9,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SANDBOX = ROOT / "sandbox"
+APP_DIR = "unity-editor-scaling-for-linux"
+
+
+def xdg_path(name, fallback):
+    value = os.environ.get(name)
+    return Path(value) if value and Path(value).is_absolute() else Path.home() / fallback
 
 
 def error(message):
@@ -18,9 +24,6 @@ def error(message):
 
 def safe_root(root):
     root = Path(root).absolute()
-    # Production settings paths are never accepted, even via XDG overrides.
-    if not (root == SANDBOX or root.is_relative_to(Path(tempfile.gettempdir()))):
-        error("Private data must stay in this copy's sandbox or a temporary test directory.")
     for part in (root, *root.parents):
         if part.is_symlink():
             error("Private data paths cannot contain symlinks.")
@@ -69,10 +72,16 @@ def profile(value, *, require_revision=True):
 
 class Store:
     def __init__(self, root=None):
-        self.root = safe_root(root or SANDBOX)
-        self.config_dir = self.root / "config/unity-scale"
-        self.state_dir = self.root / "state/unity-scale"
-        self.data_dir = self.root / "data/unity-scale"
+        self.root = safe_root(root) if root is not None else safe_root(xdg_path("XDG_DATA_HOME", ".local/share") / APP_DIR)
+        if root is not None:
+            # An explicit root is a complete isolated test/profile environment.
+            self.config_dir = self.root / "config/unity-scale"
+            self.state_dir = self.root / "state/unity-scale"
+            self.data_dir = self.root / "data/unity-scale"
+        else:
+            self.config_dir = safe_root(xdg_path("XDG_CONFIG_HOME", ".config") / APP_DIR)
+            self.state_dir = safe_root(xdg_path("XDG_STATE_HOME", ".local/state") / APP_DIR)
+            self.data_dir = self.root
         self.path = self.config_dir / "settings.json"
 
     @contextmanager
@@ -106,7 +115,7 @@ class Store:
                 value["schema_version"] not in versions or not isinstance(value.get("editors"), dict) or
                 not isinstance(value.get("extra_editors", []), list) or
                 any(not isinstance(p, str) for p in value.get("extra_editors", []))):
-            error("Private settings need schema 2. Import/migrate a COPY explicitly; production settings are never migrated here.")
+            error("Settings need schema 2; use the application installer to migrate legacy profiles.")
         for key, entry in value["editors"].items():
             if not isinstance(key, str) or not Path(key).is_absolute() or not isinstance(entry, dict):
                 error("Invalid Editor map.")

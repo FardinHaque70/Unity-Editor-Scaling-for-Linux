@@ -10,3 +10,10 @@ native/product/build/
 *.so
 *.o
 *.so.build/
+/build/
+/dist/
+/artifacts/
+/native/prebuilt/
+*.AppImage
+*.AppImage.zsync
+*.pem.private

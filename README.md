@@ -1,5 +1,10 @@
 # Unity Editor Scaling for Linux
 
+[![Download AppImage](https://img.shields.io/badge/Download-x86__64_AppImage-blue)](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/releases/download/v0.4.0-rc.1/Unity-Editor-Scaling-for-Linux-x86_64.AppImage)
+
+**v0.4.0-rc.1 prerelease:** self-contained AppImage, signed in-app updates and prebuilt native components. [Release notes and checksums](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/releases/tag/v0.4.0-rc.1).
+
+
 Make Unity Editor easier to read on high-DPI Linux displays, with a scale setting shared by every project using that Editor.
 
 **Development prerelease · Unity 6000.3.27f2 · Linux x86_64 · KDE Wayland · OpenGL**

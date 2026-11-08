@@ -1,5 +1,5 @@
 #include "startup.h"
-#include "config.generated.h"
+#include "product/activation.h"
 #include "main_geometry/main.h"
 #include "content_geometry/unity_adapter.h"
 #include "geometry/birth.h"
@@ -23,7 +23,6 @@ namespace {
 ep_snapshot policy{};bool initialized,receipt_attempted;uintptr_t image;long owner;
 ups_policy decision{UPS_POLICY_ABI,sizeof(ups_policy),UPS_UNKNOWN,0,0,0,0};int decision_rc=UPS_ARGUMENT;
 std::atomic<unsigned> installed{0};GtkWidget*bar;int fd=-1,menu_dpi;unsigned trace_rows;
-guint diagnostic_source;unsigned diagnostic_snapshots,diagnostic_limit=16;bool diagnostic_configured;
 long tid(){return syscall(SYS_gettid);}
 template<class T>T load(const void*p,size_t o){T r;memcpy(&r,(const char*)p+o,sizeof r);return r;}
 bool main_thread(){return image&&owner==(long)getpid()&&tid()==owner;}
@@ -44,42 +43,14 @@ int admit(void*opaque,uint64_t native,uint64_t generation){
  return CG_OK;
 }
 void*menu(void*,uint64_t){return bar;}
-gboolean diagnostics(gpointer){
- if(!main_thread())return G_SOURCE_REMOVE;
- if(diagnostic_snapshots>=diagnostic_limit){diagnostic_source=0;return G_SOURCE_REMOVE;}
- if(!geometry_ready()||!g_main_context_is_owner(g_main_context_default())||
-    !*(unsigned char*)(image+0x6810588)||reinterpret_cast<unsigned char(*)()>(image+0x3c08fc0)())return G_SOURCE_CONTINUE;
- rb_snapshot boundary{};boundary.size=sizeof boundary;boundary.version=RB_ABI_VERSION;
- if(rb_query(&boundary)||boundary.active_total)return G_SOURCE_CONTINUE;
- unsigned windows=0,views=0;const unsigned sample=++diagnostic_snapshots;
- try{
- using Each=void(*)(void*,const std::function<void(void*)>&);
- std::function<void(void*)> window=[&](void*p){
-  if(++windows>32||!valid(p)||!v6_birth_lookup((uint64_t)p,V6_BIRTH_WINDOW))return;
-  GtkWidget*w=load<GtkWidget*>(p,0xa8);if(!w||!GTK_IS_WINDOW(w)||!gtk_widget_get_mapped(w))return;
-  int x,y,width,height;gtk_window_get_position(GTK_WINDOW(w),&x,&y);gtk_window_get_size(GTK_WINDOW(w),&width,&height);
-  float r[4];memcpy(r,(char*)p+0x30,sizeof r);
-  dprintf(fd,"{\"event\":\"startup_window\",\"sample\":%u,\"native\":\"0x%llx\",\"mode\":%u,\"raw_client_L\":[%d,%d,%d,%d],\"cached_P\":[%.9g,%.9g,%.9g,%.9g]}\n",sample,(unsigned long long)p,load<unsigned>(p,0x40),x,y,width,height,r[0],r[1],r[2],r[3]);
- };
- std::function<void(void*)> view=[&](void*p){
-  if(++views>128||!v6_birth_lookup((uint64_t)p,V6_BIRTH_VIEW))return;
-  GtkWidget*w=load<GtkWidget*>(p,0x10);if(!w||!GTK_IS_WIDGET(w)||!gtk_widget_get_mapped(w))return;
-  GtkAllocation a{};gtk_widget_get_allocation(w,&a);int backing[2]={0,0};void*gfx=load<void*>(p,0xf8);if(gfx)memcpy(backing,(char*)gfx+0x68,sizeof backing);
-  const float u=load<float>(p,0x2c);
-  dprintf(fd,"{\"event\":\"startup_view\",\"sample\":%u,\"native\":\"0x%llx\",\"allocation_L\":[%d,%d,%d,%d],\"backing\":[%d,%d],\"cached_U\":%.9g,\"G\":%d}\n",sample,(unsigned long long)p,a.x,a.y,a.width,a.height,backing[0],backing[1],u,gtk_widget_get_scale_factor(w));
- };
-  reinterpret_cast<Each>(image+0x3b364e0)((void*)(image+0x67ce468),window);
-  reinterpret_cast<Each>(image+0x3b367f0)((void*)(image+0x67ce468),view);
- }catch(...){ns_log("{\"event\":\"startup_diagnostic_refused\",\"reason\":\"native_exception\"}");diagnostic_source=0;return G_SOURCE_REMOVE;}
- dprintf(fd,"{\"event\":\"startup_snapshot\",\"sample\":%u,\"windows\":%u,\"views\":%u,\"production_applied\":false,\"presented\":false}\n",sample,windows,views);
- return G_SOURCE_CONTINUE;
-}
+
 }
 extern "C" int ns_initialize(){
  if(initialized)return -1;
  const char*settings=getenv("UNITY_EDITOR_SCALING_SETTINGS"),*editor=getenv("UNITY_EDITOR_SCALING_PUBLIC_EDITOR");
- if((settings&&strcmp(settings,NS_SETTINGS_FILE))||(editor&&strcmp(editor,NS_PUBLIC_EDITOR)))return -1;
- decision_rc=ups_read_settings(NS_SETTINGS_FILE,NS_PUBLIC_EDITOR,getuid(),&decision);
+ const nsa_config *activation=nsa_current();
+ if((settings&&strcmp(settings,activation->settings))||(editor&&strcmp(editor,activation->public_editor)))return -1;
+ decision_rc=ups_read_settings(activation->settings,activation->public_editor,getuid(),&decision);
  if(decision_rc!=UPS_OK)return -1;
  if(decision.mode==UPS_DEFAULT){policy={1,1,1,EP_DEFAULT,0,0};initialized=true;return 0;}
  if(decision.mode!=UPS_CUSTOM||decision.percent<100||decision.percent>200||
@@ -97,7 +68,7 @@ extern "C" void ns_bootstrap(uintptr_t base){
   char owned[4096];fd=ns_log_open(path,owned,sizeof owned);
   if(fd<0)dprintf(2,"Unity scaling: owner receipt unavailable; continuing without receipt.\n");
  }
- char line[512];snprintf(line,sizeof line,"{\"event\":\"product_policy\",\"contract\":\"product-profile-v1\",\"pid\":%ld,\"policy_rc\":%d,\"mode\":%u,\"percent\":%u,\"policy_factor\":%.9g,\"revision\":%llu,\"profile_present\":%u,\"native_installed\":false,\"actual_u_measured\":false,\"production_applied\":false,\"presented\":false}",(long)getpid(),decision_rc,decision.mode,decision.percent,(double)decision.u,(unsigned long long)decision.revision,decision.profile_present);ns_log(line);
+ char line[512];snprintf(line,sizeof line,"{\"event\":\"product_policy\",\"contract\":\"product-profile-v2\",\"pid\":%ld,\"policy_rc\":%d,\"mode\":%u,\"percent\":%u,\"policy_factor\":%.9g,\"revision\":%llu,\"profile_present\":%u,\"native_installed\":false,\"actual_u_measured\":false,\"production_applied\":false,\"presented\":false}",(long)getpid(),decision_rc,decision.mode,decision.percent,(double)decision.u,(unsigned long long)decision.revision,decision.profile_present);ns_log(line);
 }
 extern "C" void ns_refused(const char*reason){
  char line[384];snprintf(line,sizeof line,"{\"event\":\"product_refusal\",\"reason\":\"%s\",\"native_installed\":false,\"production_applied\":false,\"presented\":false}",reason);ns_log(line);
@@ -129,21 +100,7 @@ extern "C" void ns_menubar(void*p){
  if(bar)g_object_remove_weak_pointer(G_OBJECT(bar),(gpointer*)&bar);
  bar=GTK_WIDGET(p);if(!bar||gtk_widget_get_scale_factor(bar)!=1)_exit(126);
  g_object_add_weak_pointer(G_OBJECT(bar),(gpointer*)&bar);
- if(fd>=0&&main_thread()&&!diagnostic_configured){
-  diagnostic_configured=true;
-  const char*raw=getenv("UNITY_EDITOR_SCALING_DIAGNOSTIC_SAMPLES");
-  if(raw){
-   unsigned parsed=0;size_t length=strnlen(raw,4);bool valid=length>=1&&length<=3;
-   for(size_t i=0;valid&&i<length;i++){if(raw[i]<'0'||raw[i]>'9')valid=false;else parsed=parsed*10+(unsigned)(raw[i]-'0');}
-   if(valid&&parsed>=1&&parsed<=120)diagnostic_limit=parsed;
-   else ns_log("{\"event\":\"startup_diagnostic_config_refused\",\"samples\":16,\"reason\":\"expected_integer_1_to_120\"}");
-  }
- }
- const char*enabled=getenv("UNITY_EDITOR_SCALING_DIAGNOSTICS");
- if(fd>=0&&(!enabled||strcmp(enabled,"0"))&&!diagnostic_source&&!diagnostic_snapshots){
-  GSource*s=g_timeout_source_new_seconds(1);g_source_set_priority(s,G_PRIORITY_DEFAULT);
-  g_source_set_callback(s,diagnostics,nullptr,nullptr);diagnostic_source=g_source_attach(s,g_main_context_default());g_source_unref(s);
- }
+
 }
 extern "C" void v6_on_gui_begin(void*,void*){} // No runtime cache mutation/lease.
 extern "C" uint64_t v6_main_handle(){
@@ -173,4 +130,44 @@ extern "C" int unity_native_startup_query(ns_status*out,uint32_t bytes){
  out->pid=getpid();out->owner_tid=owner;out->percent=policy.percent;out->installed=installed.load();
  out->menu_dpi=menu_dpi;out->menu_ready=bar!=nullptr;out->factor=(float)policy.u;
  return 0;
+}
+
+extern "C" int unity_native_settled_query(ns_settled_snapshot*out,uint32_t bytes){
+ if(!out||bytes!=sizeof *out)return -1;*out={};
+ if(tid()!=(long)getpid()||!owner||tid()!=owner)return -2;
+ if(!geometry_ready()||v6_birth_poisoned()||
+    !*(unsigned char*)(image+0x6810588)||reinterpret_cast<unsigned char(*)()>(image+0x3c08fc0)())return -3;
+ rb_snapshot boundary{};boundary.size=sizeof boundary;boundary.version=RB_ABI_VERSION;
+ if(rb_query(&boundary)||!boundary.owner_matches||!boundary.native_quiescent||boundary.poison||boundary.active_total)return -3;
+ ns_settled_snapshot result{};result.abi=NS_SETTLED_ABI;result.size=sizeof result;
+ result.owner_tid=owner;result.birth_generation=v6_birth_generation();result.boundary_serial=boundary.serial;
+ bool refused=false;
+ try{
+  using Each=void(*)(void*,const std::function<void(void*)>&);
+  std::function<void(void*)> window=[&](void*p){
+   if(refused)return;uint64_t birth=v6_birth_lookup((uint64_t)p,V6_BIRTH_WINDOW);
+   if(!birth||!valid(p)){refused=true;return;}
+   GtkWidget*w=load<GtkWidget*>(p,0xa8);if(!w||!GTK_IS_WINDOW(w)||!gtk_widget_get_mapped(w))return;
+   if(result.window_count==NS_MAX_WINDOWS){refused=true;return;}
+   auto&r=result.windows[result.window_count++];r.native=(uint64_t)p;r.birth=birth;r.mode=load<unsigned>(p,0x40);
+   gtk_window_get_position(GTK_WINDOW(w),&r.client_L[0],&r.client_L[1]);gtk_window_get_size(GTK_WINDOW(w),&r.client_L[2],&r.client_L[3]);
+   memcpy(r.cached_P,(char*)p+0x30,sizeof r.cached_P);
+  };
+  std::function<void(void*)> view=[&](void*p){
+   if(refused)return;uint64_t birth=v6_birth_lookup((uint64_t)p,V6_BIRTH_VIEW);
+   if(!birth){refused=true;return;}
+   GtkWidget*w=load<GtkWidget*>(p,0x10);if(!w||!GTK_IS_WIDGET(w)||!gtk_widget_get_mapped(w))return;
+   if(result.view_count==NS_MAX_VIEWS){refused=true;return;}
+   auto&r=result.views[result.view_count++];r.native=(uint64_t)p;r.birth=birth;
+   GtkAllocation a{};gtk_widget_get_allocation(w,&a);r.allocation_L[0]=a.x;r.allocation_L[1]=a.y;r.allocation_L[2]=a.width;r.allocation_L[3]=a.height;
+   void*gfx=load<void*>(p,0xf8);if(gfx)memcpy(r.backing,(char*)gfx+0x68,sizeof r.backing);
+   r.cached_U=load<float>(p,0x2c);r.gtk_scale=gtk_widget_get_scale_factor(w);
+  };
+  reinterpret_cast<Each>(image+0x3b364e0)((void*)(image+0x67ce468),window);
+  reinterpret_cast<Each>(image+0x3b367f0)((void*)(image+0x67ce468),view);
+ }catch(...){return -4;}
+ rb_snapshot after{};after.size=sizeof after;after.version=RB_ABI_VERSION;
+ if(refused||result.birth_generation!=v6_birth_generation()||v6_birth_poisoned()||rb_query(&after)||
+    after.serial!=boundary.serial||!after.native_quiescent||after.poison)return -4;
+ *out=result;return 0;
 }

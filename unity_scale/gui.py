@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import threading
@@ -45,6 +47,10 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         self.closing_mode = None
         self.pending_dialog = None
         self.write_lock = threading.Lock()
+        self.update_cancel = None
+        self.update_running = False
+        self.update_close_pending = False
+        self.prepared_update = None
         self.connect('close-request', self.on_close)
         self.overlay = Adw.ToastOverlay()
         self.set_content(self.overlay)
@@ -53,7 +59,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title=core.APP_NAME))
         menu = Gio.Menu()
-        for label, action in [('Add Editor…', 'add'), ('Diagnostics', 'diagnostics'), ('GitHub', 'github'), ('About', 'about')]:
+        for label, action in [('Add Editor…', 'add'), ('Diagnostics', 'diagnostics'), ('Check for Updates…', 'updates'), ('GitHub', 'github'), ('About', 'about')]:
             menu.append(label, 'app.' + action)
         header.pack_end(Gtk.MenuButton(icon_name='open-menu-symbolic', menu_model=menu))
         toolbar.add_top_bar(header)
@@ -135,6 +141,8 @@ class UnityScaleWindow(Adw.ApplicationWindow):
                 result, error = None, exc
             def finish():
                 if self.closed:
+                    if result is not None and hasattr(result, 'cleanup'):
+                        result.cleanup()
                     return GLib.SOURCE_REMOVE
                 if error is not None:
                     (failed or self.error)(error)
@@ -335,6 +343,9 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         choice = dict(session.profile, override_enabled=request.override, ui_scale_percent=request.scale, follow_desktop=False)
         def save():
             with self.write_lock:
+                if request.override:
+                    from .native_backend import ensure_connected
+                    ensure_connected(session.editor.path, self.store)
                 before, after = self.store.set_profile_change(session.editor.path, choice)
                 from .native_backend import status
                 return before, after, status(session.editor.path, after, settings_path=self.store.path)
@@ -410,14 +421,24 @@ class UnityScaleWindow(Adw.ApplicationWindow):
             self.worker(lambda: self.store.add_editor(path), lambda editor: self.scan([editor.path]))
         dialog.open(self, None, chosen)
 
-    def show_folder(self, editor):
-        launcher = Gtk.FileLauncher(file=Gio.File.new_for_path(str(Path(editor.path).parent)))
-        def done(obj, result):
+    def open_uri(self, uri):
+        from .updates import host_environment
+        def launch():
+            environment = host_environment()
+            opener = shutil.which('xdg-open', path=environment.get('PATH'))
+            if not opener:
+                raise core.AppError('Install xdg-utils to open links and folders from this app.')
             try:
-                obj.launch_finish(result)
-            except GLib.Error as exc:
-                self.error(exc)
-        launcher.launch(self, None, done)
+                result = subprocess.run([opener, uri], env=environment, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=15, check=False)
+            except subprocess.TimeoutExpired as exc:
+                raise core.AppError('The desktop took too long to open that location.') from exc
+            if result.returncode:
+                raise core.AppError('The desktop could not open that location.')
+        self.worker(launch, lambda _result: None)
+
+    def show_folder(self, editor):
+        self.open_uri(Path(editor.path).parent.as_uri())
 
     def editor_details(self, editor):
         dialog = Adw.MessageDialog(transient_for=self, heading=editor_name(editor.version),
@@ -437,6 +458,15 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         dialog.present()
 
     def on_close(self, *_):
+        if self.update_running:
+            self.update_close_pending = True
+            self.update_cancel.set()
+            return True
+        if self.update_cancel is not None:
+            self.update_cancel.set()
+        if self.prepared_update is not None:
+            self.prepared_update.cleanup()
+            self.prepared_update = None
         if self.force_close or not self.has_pending():
             self.closed = True
             for session in self.sessions.values():
@@ -514,6 +544,123 @@ class UnityScaleWindow(Adw.ApplicationWindow):
         toolbar.set_content(Gtk.ScrolledWindow(child=view))
         dialog.present()
 
+    def updates(self):
+        if self.busy or self.has_pending() or self.closing_mode:
+            self.error('Wait for settings to finish saving before checking for updates.')
+            return
+        from . import updates
+        self.busy = True
+        self.controls.set_sensitive(False)
+        self.update_actions()
+        cancel = threading.Event()
+        self.update_cancel = cancel
+        self.update_running = True
+        dialog = Adw.MessageDialog(transient_for=self, modal=True, heading='Checking for updates',
+                                  body='Current version: ' + core.VERSION)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        progress = Gtk.ProgressBar(show_text=True)
+        progress.set_text('Connecting to GitHub…')
+        box.append(progress)
+        notes = Gtk.Label(wrap=True, selectable=True, xalign=0)
+        notes_scroll = Gtk.ScrolledWindow(child=notes, min_content_height=180, max_content_height=280,
+                                         propagate_natural_height=True)
+        notes_scroll.set_visible(False)
+        box.append(notes_scroll)
+        dialog.set_extra_child(box)
+        dialog.add_response('cancel', 'Cancel')
+        dialog.add_response('download', 'Download')
+        dialog.add_response('restart', 'Restart to Update')
+        dialog.set_response_enabled('download', False)
+        dialog.set_response_enabled('restart', False)
+        dialog.set_close_response('cancel')
+        dialog.set_response_appearance('restart', Adw.ResponseAppearance.SUGGESTED)
+        state = {'release': None, 'running': True, 'dismissed': False}
+        def release_busy():
+            self.busy = False
+            self.controls.set_sensitive(True)
+            self.update_cancel = None
+            self.update_running = False
+            self.update_actions()
+            if self.update_close_pending:
+                self.close()
+        def failed(error):
+            state['running'] = False
+            self.update_running = False
+            release_busy()
+            if not state['dismissed']:
+                dialog.set_heading('Update cancelled' if isinstance(error, updates.Cancelled) else 'Could not update')
+                dialog.set_body(str(error))
+                progress.set_text('')
+                dialog.set_response_label('cancel', 'Close')
+        def found(release):
+            state['running'] = False
+            self.update_running = False
+            if state['dismissed'] or self.update_close_pending:
+                release_busy()
+                return
+            if release is None:
+                dialog.set_heading('You’re up to date')
+                progress.set_text('Version ' + core.VERSION)
+                dialog.set_response_label('cancel', 'Close')
+                release_busy()
+                return
+            state['release'] = release
+            dialog.set_heading('Version ' + release.version + ' is available')
+            dialog.set_body('Current version: ' + core.VERSION + '\nDownload size: %.1f MiB' % (release.size / 1048576))
+            notes.set_text(release.notes or 'No release notes provided.')
+            notes_scroll.set_visible(True)
+            progress.set_text('Ready to download')
+            dialog.set_response_enabled('download', True)
+        def downloaded(prepared):
+            state['running'] = False
+            self.update_running = False
+            if state['dismissed'] or self.update_close_pending:
+                prepared.cleanup()
+                release_busy()
+                return
+            self.prepared_update = prepared
+            dialog.set_heading('Ready to restart')
+            dialog.set_body('The signed download is verified. Close affected Unity Editors, then restart this app to install it.')
+            progress.set_fraction(1)
+            progress.set_text('Verified')
+            dialog.set_response_enabled('restart', True)
+        def report(count, total):
+            def show():
+                if not state['dismissed']:
+                    progress.set_fraction(count / total)
+                    progress.set_text('%d%%' % (100 * count / total))
+                return GLib.SOURCE_REMOVE
+            GLib.idle_add(show)
+        def response(_dialog, action):
+            if action == 'download':
+                dialog.present()
+                state['running'] = True
+                self.update_running = True
+                dialog.set_response_enabled('download', False)
+                progress.set_text('Downloading…')
+                self.worker(lambda: updates.prepare(state['release'], cancel=cancel, progress=report), downloaded, failed)
+            elif action == 'restart':
+                try:
+                    updates.restart(self.prepared_update)
+                except Exception as exc:
+                    dialog.present()
+                    dialog.set_body(str(exc))
+                    return
+                self.prepared_update = None
+                self.force_close = True
+                self.close()
+            else:
+                state['dismissed'] = True
+                cancel.set()
+                if self.prepared_update is not None:
+                    self.prepared_update.cleanup()
+                    self.prepared_update = None
+                if not state['running']:
+                    release_busy()
+        dialog.connect('response', response)
+        dialog.present()
+        self.worker(lambda: updates.check(cancel=cancel), found, failed)
+
     def about(self):
         dialog = Adw.AboutWindow(transient_for=self, application_name=core.APP_NAME,
             application_icon=core.ICON_NAME, version=core.VERSION, developer_name='Fardin Haque and contributors',
@@ -522,7 +669,7 @@ class UnityScaleWindow(Adw.ApplicationWindow):
 
 
 class UnityScaleApplication(Adw.Application):
-    def __init__(self, *, store=None, editors=None):
+    def __init__(self, *, store=None, editors=None, post_update=None):
         testing = store is not None or editors is not None
         super().__init__(application_id=core.APP_ID,
                          flags=Gio.ApplicationFlags.NON_UNIQUE if testing else Gio.ApplicationFlags.DEFAULT_FLAGS)
@@ -530,6 +677,7 @@ class UnityScaleApplication(Adw.Application):
         self.editors_override = editors
         self.window = None
         self.startup_error = None
+        self.post_update = post_update
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -537,7 +685,7 @@ class UnityScaleApplication(Adw.Application):
         if display:
             Gtk.IconTheme.get_for_display(display).add_search_path(str(core.ROOT / 'resources'))
             Gtk.Window.set_default_icon_name(core.ICON_NAME)
-        for name in ('add', 'diagnostics', 'about', 'github', 'quit'):
+        for name in ('add', 'diagnostics', 'updates', 'about', 'github', 'quit'):
             action = Gio.SimpleAction.new(name, None)
             def activate(_action, _parameter, key=name):
                 if self.window is None:
@@ -545,7 +693,7 @@ class UnityScaleApplication(Adw.Application):
                 if key == 'add':
                     self.window.add_editor()
                 elif key == 'github':
-                    Gtk.show_uri(self.window, core.REPOSITORY_URL, Gdk.CURRENT_TIME)
+                    self.window.open_uri(core.REPOSITORY_URL)
                 elif key == 'quit':
                     self.window.close()
                 else:
@@ -564,15 +712,41 @@ class UnityScaleApplication(Adw.Application):
                 self.quit()
                 return
         self.window.present()
+        if self.post_update:
+            from .updates import acknowledge
+            try:
+                acknowledge(*self.post_update)
+                self.post_update = None
+            except Exception as exc:
+                self.startup_error = exc
+                self.quit()
 
 
-def main(argv=None):
+def main(argv=None, *, post_update=None):
     if not Gtk.init_check():
         print(core.APP_NAME + ' needs a graphical desktop.', file=sys.stderr)
         return 2
-    app = UnityScaleApplication()
+    app = UnityScaleApplication(post_update=post_update)
     result = app.run(['unity-scale', *(argv or [])])
     if app.startup_error is not None:
         print(core.APP_NAME + ': ' + str(app.startup_error), file=sys.stderr)
         return 1
     return result
+
+
+def show_startup_error(error):
+    """Double-click installation errors stay visible without opening empty settings."""
+    if not Gtk.init_check():
+        print(core.APP_NAME + ': ' + str(error), file=sys.stderr)
+        return 1
+    application = Adw.Application(application_id=core.APP_ID + '.StartupError',
+                                  flags=Gio.ApplicationFlags.NON_UNIQUE)
+    def activate(app):
+        dialog = Adw.MessageDialog(application=app, heading='Could not prepare Unity scaling', body=str(error))
+        dialog.add_response('close', 'Close')
+        dialog.connect('response', lambda *_: app.quit())
+        app.error_dialog = dialog
+        dialog.present()
+    application.connect('activate', activate)
+    application.run(['unity-scale'])
+    return 1

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+APPDIR=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+export APPDIR
+export UNITY_SCALE_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
+export UNITY_SCALE_HOST_PATH="$PATH"
+export UNITY_SCALE_HOST_XDG_DATA_DIRS="${XDG_DATA_DIRS-}"
+export PYTHONHOME="$APPDIR/usr"
+export PYTHONPATH="$APPDIR/usr/share/unity-editor-scaling:$APPDIR/usr/lib/python3.10/site-packages"
+export PYTHONDONTWRITEBYTECODE=1
+export LD_LIBRARY_PATH="$APPDIR/usr/lib"
+export GI_TYPELIB_PATH="$APPDIR/usr/lib/girepository-1.0"
+export GIO_MODULE_DIR="$APPDIR/usr/lib/gio/modules"
+export GIO_EXTRA_MODULES="$APPDIR/usr/lib/gio/modules"
+export GTK_DATA_PREFIX="$APPDIR/usr"
+export GSETTINGS_SCHEMA_DIR="$APPDIR/usr/share/glib-2.0/schemas"
+export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GDK_BACKEND="${GDK_BACKEND:-x11}"
+export SSL_CERT_FILE="$APPDIR/usr/share/unity-editor-scaling/resources/ca-certificates.crt"
+runtime_cache=$(mktemp -d "${TMPDIR:-/tmp}/unity-scale-runtime-XXXXXX")
+trap 'rm -rf -- "$runtime_cache"' EXIT HUP INT TERM
+export GDK_PIXBUF_MODULEDIR="$APPDIR/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders"
+"$APPDIR/usr/bin/gdk-pixbuf-query-loaders" > "$runtime_cache/loaders.cache"
+export GDK_PIXBUF_MODULE_FILE="$runtime_cache/loaders.cache"
+"$APPDIR/usr/bin/python3.10" -m unity_scale "$@"

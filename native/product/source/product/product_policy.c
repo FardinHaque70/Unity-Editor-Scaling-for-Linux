@@ -133,6 +133,26 @@ static int finite_json(struct json_object *value)
     }
     return 1;
 }
+int ups_strict_document(const char *data, size_t length, struct json_object **out)
+{
+    *out = NULL;
+    if (!data || !length || length > 65536) return UPS_JSON;
+    struct json_tokener *token = json_tokener_new_ex(32);
+    if (!token) return UPS_MEMORY;
+    json_tokener_set_flags(token, JSON_TOKENER_STRICT | JSON_TOKENER_VALIDATE_UTF8);
+    struct json_object *doc = json_tokener_parse_ex(token, data, (int)length);
+    int rc = UPS_JSON;
+    if (json_tokener_get_error(token) == json_tokener_success && doc &&
+        json_tokener_get_parse_end(token) == length && finite_json(doc)) {
+        const char *cursor = data;
+        rc = unique_keys(&cursor, data + length, 0);
+        whitespace(&cursor, data + length);
+        if (cursor != data + length) rc = UPS_JSON;
+    }
+    json_tokener_free(token);
+    if (rc) { if (doc) json_object_put(doc); return rc; }
+    *out = doc; return UPS_OK;
+}
 static int profile(struct json_object *value, uint32_t *mode, uint32_t *percent, uint64_t *revision)
 {
     struct json_object *enabled, *scale, *rev, *optional;

@@ -1,0 +1,298 @@
+"""Explicit, signed AppImage updates. Importing this module never uses the network."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from . import core
+
+REPOSITORY = 'FardinHaque70/unity-editor-ui-scalar-for-linux'
+API = 'https://api.github.com/repos/' + REPOSITORY + '/releases'
+FILENAME = 'Unity-Editor-Scaling-for-Linux-x86_64.AppImage'
+MAX_IMAGE = 1024 * 1024 * 1024
+TIMEOUT = 20
+
+
+class UpdateError(core.AppError):
+    pass
+
+
+class Cancelled(UpdateError):
+    def __init__(self):
+        super().__init__('Update cancelled.')
+
+
+def version_key(value):
+    match = re.fullmatch(r'v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?', value or '')
+    if not match:
+        raise UpdateError('Unsupported release version: ' + str(value))
+    major, minor, patch, rc = match.groups()
+    return int(major), int(minor), int(patch), 1 if rc is None else 0, int(rc or 0)
+
+
+def _cancel(cancel):
+    if cancel is not None and cancel.is_set():
+        raise Cancelled()
+
+
+def asset_url(url):
+    parts = urllib.parse.urlsplit(url)
+    return (parts.scheme == 'https' and parts.netloc == 'github.com' and not parts.query and not parts.fragment
+            and parts.path.startswith('/' + REPOSITORY + '/releases/download/')
+            and len(parts.path.split('/')) == 7)
+
+
+def _network_url(url):
+    p = urllib.parse.urlsplit(url)
+    return p.scheme == 'https' and not p.username and not p.password and (p.netloc in {
+        'release-assets.githubusercontent.com', 'objects.githubusercontent.com'} or
+        (p.netloc == 'github.com' and asset_url(url)) or
+        (p.netloc == 'api.github.com' and p.path == '/repos/' + REPOSITORY + '/releases'))
+
+
+class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _network_url(newurl):
+            raise UpdateError('The release redirected outside official GitHub assets.')
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class GitHubTransport:
+    """Production HTTPS transport; tests inject an independent in-memory transport."""
+    def open(self, url):
+        if not _network_url(url):
+            raise UpdateError('Refusing a release URL outside GitHub.')
+        request = urllib.request.Request(url, headers={'User-Agent': 'Unity-Editor-Scaling/' + core.VERSION,
+            'Accept': 'application/vnd.github+json' if url.startswith(API) else 'application/octet-stream'})
+        try:
+            return urllib.request.build_opener(_SafeRedirect()).open(request, timeout=TIMEOUT)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (403, 429):
+                raise UpdateError('GitHub rate limit reached. Try again later.') from exc
+            raise UpdateError('GitHub could not provide the update (HTTP %s).' % exc.code) from exc
+        except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
+            raise UpdateError('Could not reach GitHub. Check your connection and try again.') from exc
+
+
+def _bytes(transport, url, limit, cancel):
+    data = bytearray()
+    with transport.open(url) as response:
+        while True:
+            _cancel(cancel)
+            chunk = response.read(min(65536, limit + 1 - len(data)))
+            if not chunk:
+                return bytes(data)
+            data.extend(chunk)
+            if len(data) > limit:
+                raise UpdateError('The release response is larger than expected.')
+
+
+def _object(data):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise UpdateError('Release metadata contains duplicate keys.')
+            value[key] = item
+        return value
+    try:
+        return json.loads(data, object_pairs_hook=unique)
+    except (UnicodeError, ValueError) as exc:
+        raise UpdateError('Release metadata is invalid.') from exc
+
+
+def verify_signature(manifest, signature, *, helper=None, public_key=None):
+    if len(signature) != 64:
+        raise UpdateError('The release signature is invalid.')
+    helper = Path(helper or core.ROOT / 'libexec/unity-scale-update-helper')
+    public_key = Path(public_key or core.ROOT / 'resources/update-public-key.pem')
+    if not helper.is_file() or not public_key.is_file():
+        raise UpdateError('This build does not include the signed update verifier.')
+    with tempfile.TemporaryDirectory(prefix='unity-scale-signature-') as directory:
+        base = Path(directory)
+        (base / 'manifest').write_bytes(manifest)
+        (base / 'signature').write_bytes(signature)
+        result = subprocess.run([str(helper), 'verify', str(public_key), str(base / 'manifest'),
+                                 str(base / 'signature')], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                timeout=10, check=False)
+        if result.returncode:
+            raise UpdateError('The release signature could not be verified. No update was installed.')
+
+
+@dataclass(frozen=True)
+class Release:
+    version: str
+    notes: str
+    url: str
+    size: int
+    sha256: str
+    manifest: bytes
+    signature: bytes
+
+
+@dataclass
+class PreparedUpdate:
+    release: Release
+    target: Path
+    directory: Path
+    staged: Path
+
+    def cleanup(self):
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+
+def check(*, current=None, transport=None, cancel=None, verifier=None):
+    """List releases: prerelease clients accept rc/stable; stable clients stable only."""
+    current = current or core.VERSION
+    current_key = version_key(current)
+    transport = transport or GitHubTransport()
+    candidates = []
+    for page in range(1, 6):
+        values = _object(_bytes(transport, API + '?per_page=100&page=' + str(page), 4 * 1024 * 1024, cancel))
+        if not isinstance(values, list):
+            raise UpdateError('GitHub returned an invalid release list.')
+        for release in values:
+            if not isinstance(release, dict) or release.get('draft'):
+                continue
+            try:
+                key = version_key(release.get('tag_name'))
+            except UpdateError:
+                continue
+            if key <= current_key or (current_key[3] and (not key[3] or release.get('prerelease'))):
+                continue
+            candidates.append((key, release))
+        if len(values) < 100:
+            break
+    if not candidates:
+        return None
+    _key, release = max(candidates, key=lambda item: item[0])
+    assets = {}
+    for asset in release.get('assets', []):
+        name, url = asset.get('name'), asset.get('browser_download_url', '')
+        if name in (FILENAME, 'release.json', 'release.json.sig'):
+            if name in assets or not asset_url(url) or urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit('/', 1)[1]) != name:
+                raise UpdateError('The release contains invalid asset URLs.')
+            assets[name] = url
+    if set(assets) != {FILENAME, 'release.json', 'release.json.sig'}:
+        raise UpdateError('This release is missing its signed update assets.')
+    manifest = _bytes(transport, assets['release.json'], 16384, cancel)
+    signature = _bytes(transport, assets['release.json.sig'], 64, cancel)
+    _cancel(cancel)
+    (verifier or verify_signature)(manifest, signature)
+    value = _object(manifest)
+    required = {'schema', 'version', 'channel', 'architecture', 'filename', 'size', 'sha256'}
+    if (not isinstance(value, dict) or set(value) != required or type(value['schema']) is not int or value['schema'] != 1
+            or value['version'] != release['tag_name'].removeprefix('v')
+            or value['channel'] != ('stable' if _key[3] else 'prerelease')
+            or value['architecture'] != 'x86_64' or value['filename'] != FILENAME
+            or type(value['size']) is not int or not 0 < value['size'] <= MAX_IMAGE
+            or not isinstance(value['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', value['sha256'])):
+        raise UpdateError('The signed release manifest is incompatible with this application.')
+    return Release(value['version'], str(release.get('body') or '')[:64000], assets[FILENAME],
+                   value['size'], value['sha256'], manifest, signature)
+
+
+def managed_image():
+    from . import private_store
+    return core._xdg('XDG_DATA_HOME', '.local/share') / private_store.APP_DIR / 'application.AppImage'
+
+
+def prepare(release, *, target=None, transport=None, cancel=None, progress=None):
+    target = Path(target or managed_image()).absolute()
+    if not target.is_file() or target.is_symlink() or target.stat().st_uid != os.getuid():
+        raise UpdateError('Install this AppImage for your user before updating it.')
+    directory = Path(tempfile.mkdtemp(prefix='.update-', dir=target.parent))
+    staged = directory / 'new.AppImage'
+    try:
+        sha = hashlib.sha256()
+        count = 0
+        with (transport or GitHubTransport()).open(release.url) as response, staged.open('xb') as output:
+            while True:
+                _cancel(cancel)
+                chunk = response.read(256 * 1024)
+                if not chunk:
+                    break
+                count += len(chunk)
+                if count > release.size:
+                    raise UpdateError('The downloaded update is larger than its signed size.')
+                output.write(chunk)
+                sha.update(chunk)
+                if progress:
+                    progress(count, release.size)
+            output.flush()
+            os.fsync(output.fileno())
+        _cancel(cancel)
+        if count != release.size or sha.hexdigest() != release.sha256:
+            raise UpdateError('The downloaded update failed verification. No update was installed.')
+        staged.chmod(0o700)
+        (directory / 'release.json').write_bytes(release.manifest)
+        (directory / 'release.json.sig').write_bytes(release.signature)
+        return PreparedUpdate(release, target, directory, staged)
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+
+
+def restart(prepared):
+    """Launch a self-contained helper outside the mounted image, then caller quits."""
+    from .user_install import check_update_ready
+    check_update_ready()
+    if prepared.target.with_name(prepared.target.name + '.rollback').exists():
+        raise UpdateError('A previous update rollback is still present. Restart the installed app before updating again.')
+    helper = core.ROOT / 'libexec/unity-scale-update-helper'
+    detached = prepared.directory / 'update-helper'
+    shutil.copyfile(helper, detached)
+    detached.chmod(0o700)
+    key = prepared.directory / 'public-key.pem'
+    shutil.copyfile(core.ROOT / 'resources/update-public-key.pem', key)
+    token = secrets.token_hex(32)
+    ack = prepared.directory / 'healthy'
+    process = subprocess.Popen([str(detached), 'apply', str(os.getpid()), str(prepared.target),
+        str(prepared.staged), str(prepared.directory / 'release.json'),
+        str(prepared.directory / 'release.json.sig'), str(key), str(ack), token, prepared.release.version],
+        start_new_session=True, close_fds=True, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return process.pid
+
+
+def acknowledge(path, token):
+    path = Path(path).absolute()
+    image = Path(os.environ.get('APPIMAGE', '')).absolute()
+    if (not re.fullmatch('[0-9a-f]{64}', token) or path.name != 'healthy'
+            or not path.parent.name.startswith('.update-') or path.parent.parent != image.parent
+            or path.parent.is_symlink() or path.parent.stat().st_uid != os.getuid()
+            or path.parent.stat().st_mode & 0o077):
+        raise UpdateError('Invalid post-update health acknowledgement.')
+    with path.open('x') as stream:
+        os.chmod(path, 0o600)
+        stream.write(token)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def host_environment():
+    """Leave the old AppImage runtime before starting another executable."""
+    environment = os.environ.copy()
+    for key in ('APPIMAGE', 'APPDIR', 'ARGV0', 'PYTHONHOME', 'PYTHONPATH', 'GI_TYPELIB_PATH',
+                'GIO_MODULE_DIR', 'GIO_EXTRA_MODULES', 'GTK_DATA_PREFIX', 'GSETTINGS_SCHEMA_DIR', 'SSL_CERT_FILE'):
+        environment.pop(key, None)
+    for key in ('LD_LIBRARY_PATH', 'PATH', 'XDG_DATA_DIRS'):
+        saved = environment.pop('UNITY_SCALE_HOST_' + key, None)
+        if saved:
+            environment[key] = saved
+        elif key != 'PATH':
+            environment.pop(key, None)
+    return environment

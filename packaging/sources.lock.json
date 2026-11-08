@@ -1,0 +1,27 @@
+{
+  "glib": {
+    "version": "2.78.6",
+    "url": "https://download.gnome.org/sources/glib/2.78/glib-2.78.6.tar.xz",
+    "sha256": "244854654dd82c7ebcb2f8e246156d2a05eb9cd1ad07ed7a779659b4602c9fae"
+  },
+  "gobject-introspection": {
+    "version": "1.78.1",
+    "url": "https://download.gnome.org/sources/gobject-introspection/1.78/gobject-introspection-1.78.1.tar.xz",
+    "sha256": "bd7babd99af7258e76819e45ba4a6bc399608fe762d83fde3cac033c50841bb4"
+  },
+  "gtk": {
+    "version": "4.12.5",
+    "url": "https://download.gnome.org/sources/gtk/4.12/gtk-4.12.5.tar.xz",
+    "sha256": "28b356d590ee68ef626e2ef9820b2dd21441484a9a042a5a3f0c40e9dfc4f4f8"
+  },
+  "libadwaita": {
+    "version": "1.4.6",
+    "url": "https://download.gnome.org/sources/libadwaita/1.4/libadwaita-1.4.6.tar.xz",
+    "sha256": "c7ea93c2b72bfc5611704c06d0a21587d2709f32558077dbfdd6e1aa7b30def0"
+  },
+  "pygobject": {
+    "version": "3.46.0",
+    "url": "https://download.gnome.org/sources/pygobject/3.46/pygobject-3.46.0.tar.xz",
+    "sha256": "426008b2dad548c9af1c7b03b59df0440fde5c33f38fb5406b103a43d653cafc"
+  }
+}
