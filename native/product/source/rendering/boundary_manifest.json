@@ -1,0 +1,395 @@
+{
+  "elf_sha256": "d5e670eab13daa0962126f61354041a1077757a7d2ecb3f3eaff5ac859cbbbec",
+  "entry_patch": "E9 rel32 plus NOPs; nearby RX thunk; no interior callsite edits",
+  "operations": [
+    {
+      "id": 0,
+      "name": "paint",
+      "va": "0x3bfbd20",
+      "prefix": "554156534881ec90000000",
+      "len": 11,
+      "instructions": [
+        "push   %rbp",
+        "push   %r14",
+        "push   %rbx",
+        "sub    $0x90,%rsp"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "reshape",
+      "va": "0x3bfbf30",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "screen",
+      "va": "0x3bfc090",
+      "prefix": "415653504889fb",
+      "len": 7,
+      "instructions": [
+        "push   %r14",
+        "push   %rbx",
+        "push   %rax",
+        "mov    %rdi,%rbx"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "create_gfx",
+      "va": "0x3bfc210",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "set_position",
+      "va": "0x3bfe4b0",
+      "prefix": "41565350f30f2c4608",
+      "len": 9,
+      "instructions": [
+        "push   %r14",
+        "push   %rbx",
+        "push   %rax",
+        "cvttss2si 0x8(%rsi),%eax"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "set_window",
+      "va": "0x3bfd8e0",
+      "prefix": "4157415653",
+      "len": 5,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %rbx"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "set_rect",
+      "va": "0x3bfaed0",
+      "prefix": "554156534883ec20",
+      "len": 8,
+      "instructions": [
+        "push   %rbp",
+        "push   %r14",
+        "push   %rbx",
+        "sub    $0x20,%rsp"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "rect_changed",
+      "va": "0x3bf9790",
+      "prefix": "534883ec20",
+      "len": 5,
+      "instructions": [
+        "push   %rbx",
+        "sub    $0x20,%rsp"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "process_input",
+      "va": "0x3b3e7d0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "on_input",
+      "va": "0x3bfc460",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "send_layout",
+      "va": "0x3bfc3c0",
+      "prefix": "415741564154",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r12"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "begin_gui",
+      "va": "0x3b3f7e0",
+      "prefix": "415741564155",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r13"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "end_gui",
+      "va": "0x3b3f8c0",
+      "prefix": "4157415653",
+      "len": 5,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %rbx"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "begin_context",
+      "va": "0x3bfc190",
+      "prefix": "534889fb488bbff8000000",
+      "len": 11,
+      "instructions": [
+        "push   %rbx",
+        "mov    %rdi,%rbx",
+        "mov    0xf8(%rdi),%rdi"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "end_context",
+      "va": "0x3bfc1c0",
+      "prefix": "555350488b9ff8000000",
+      "len": 10,
+      "instructions": [
+        "push   %rbp",
+        "push   %rbx",
+        "push   %rax",
+        "mov    0xf8(%rdi),%rbx"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "view_dtor",
+      "va": "0x3bfd250",
+      "prefix": "415741564154",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r12"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "container_dtor",
+      "va": "0x3bf85a0",
+      "prefix": "534889fb837f4004",
+      "len": 8,
+      "instructions": [
+        "push   %rbx",
+        "mov    %rdi,%rbx",
+        "cmpl   $0x4,0x40(%rdi)"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "view_ctor",
+      "va": "0x3bfcf60",
+      "prefix": "415741564155",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r13"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "container_init",
+      "va": "0x3bf86a0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "repaint_batch",
+      "va": "0x3b376a0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "menu_allocate",
+      "va": "0x3bc2e00",
+      "prefix": "415741564155",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r13"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "container_allocate",
+      "va": "0x3bf9e60",
+      "prefix": "534889fb4889f7",
+      "len": 7,
+      "instructions": [
+        "push   %rbx",
+        "mov    %rdi,%rbx",
+        "mov    %rsi,%rdi"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "add_view",
+      "va": "0x3b328b0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "add_window",
+      "va": "0x3b35610",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "remove_view",
+      "va": "0x3b32b20",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "remove_window",
+      "va": "0x3b34cd0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "minmax",
+      "va": "0x3bfabe0",
+      "prefix": "415741564155",
+      "len": 6,
+      "instructions": [
+        "push   %r15",
+        "push   %r14",
+        "push   %r13"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "recreate_context",
+      "va": "0x3bfd4b0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "initialize_view",
+      "va": "0x3bfd180",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "pending_delete",
+      "va": "0x3b34fe0",
+      "prefix": "5541574156",
+      "len": 5,
+      "instructions": [
+        "push   %rbp",
+        "push   %r15",
+        "push   %r14"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "make_modal",
+      "va": "0x3bfadb0",
+      "prefix": "4156534883ec28",
+      "len": 7,
+      "instructions": [
+        "push   %r14",
+        "push   %rbx",
+        "sub    $0x28,%rsp"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "bring_live",
+      "va": "0x3bfa940",
+      "prefix": "5541565380bfc300000000",
+      "len": 11,
+      "instructions": [
+        "push   %rbp",
+        "push   %r14",
+        "push   %rbx",
+        "cmpb   $0x0,0xc3(%rdi)"
+      ]
+    }
+  ]
+}

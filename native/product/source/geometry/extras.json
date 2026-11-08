@@ -1,0 +1,21 @@
+[
+  {
+    "name": "gui_pixel_offset",
+    "va": "0x3bfb4a0",
+    "stolen": "534883ec104889fb4885f67437488b7e10",
+    "relocations": [
+      [
+        12,
+        1,
+        13,
+        62895332
+      ]
+    ]
+  },
+  {
+    "name": "container_top_left",
+    "va": "0x3bfa530",
+    "stolen": "534883ec104889fb488bbeb0000000",
+    "relocations": []
+  }
+]

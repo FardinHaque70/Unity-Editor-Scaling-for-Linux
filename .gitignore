@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+sandbox/
+Archive/
+APP-INSTALL-RESULT.json
+qa/output*/
+native/product/build/
+*.so
+*.o
+*.so.build/

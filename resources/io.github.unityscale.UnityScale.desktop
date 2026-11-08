@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Unity Editor Scaling for Linux
+GenericName=Unity Editor Scaling
+Comment=Save Unity Editor scaling preferences independently of projects
+Exec=unity-scale
+Icon=io.github.unityscale.UnityScale
+Terminal=false
+Categories=Development;
+Keywords=Unity;Editor;Scale;HiDPI;Linux;
+StartupNotify=true
+StartupWMClass=io.github.unityscale.UnityScale
