@@ -6,6 +6,14 @@ Make Unity Editor easier to read on high-DPI Linux displays, with a scale settin
 
 [Compatibility](#compatibility) · [100% → 160% comparison](#unity-editor-100--160) · [Install](#install-and-use)
 
+## Unity Editor: 100% → 160%
+
+| Before — 100% | After — 160% |
+| --- | --- |
+| <a href="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png"><img src="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png" alt="Unity Editor at 100%" width="360"></a> | <a href="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png"><img src="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png" alt="Unity Editor at 160%" width="360"></a> |
+
+Same Unity build, scene, default layout, and window size. Both use Custom scale; click either capture for full resolution. The 160% capture includes a layout-reload error; see [known issues](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/VALIDATION.md#100--160-screenshot-comparison). [Capture details](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/screenshots/comparison.json).
+
 ## Standalone app
 
 <img src="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/standalone-app.png" alt="Standalone settings app with Custom scale set to 150%" width="680">
@@ -40,14 +48,6 @@ Make Unity Editor easier to read on high-DPI Linux displays, with a scale settin
 Tested with a **28-inch 4K monitor**; preferred Editor scale is 150%. Unity must use OpenGL; local trials used `-force-glcore`.
 
 [Detailed checklists, scope, and known issues](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/COMPATIBILITY.md). Help extending support and [reporting test results](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) is appreciated.
-
-## Unity Editor: 100% → 160%
-
-| Before — 100% | After — 160% |
-| --- | --- |
-| <a href="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png"><img src="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-before-100.png" alt="Unity Editor at 100%" width="360"></a> | <a href="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png"><img src="https://raw.githubusercontent.com/FardinHaque70/unity-editor-ui-scalar-for-linux/main/docs/screenshots/unity-after-160.png" alt="Unity Editor at 160%" width="360"></a> |
-
-Same Unity build, scene, default layout, and window size. Both use Custom scale; click either capture for full resolution. The 160% capture includes a layout-reload error; see [known issues](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/VALIDATION.md#100--160-screenshot-comparison). [Capture details](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/blob/main/docs/screenshots/comparison.json).
 
 ## How it works
 
