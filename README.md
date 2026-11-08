@@ -8,6 +8,14 @@ The current backend targets one exact **Unity 6000.3.27f2 Linux x86_64** executa
 d5e670eab13daa0962126f61354041a1077757a7d2ecb3f3eaff5ac859cbbbec
 ```
 
+## Tested setup and community testing
+
+Tested on my **CachyOS system with KDE Plasma on Wayland and a 28-inch 4K monitor**. **150% custom Editor scale looks right to me** on this setup; your preferred size may differ.
+
+**GNOME and other desktop environments have not been tested.** The current native backend checks for KDE Wayland and refuses custom scaling on other sessions. Help extending compatibility, testing and verifying it, and reporting results would be very much appreciated.
+
+Please [open an issue](https://github.com/FardinHaque70/unity-editor-ui-scalar-for-linux/issues) with your distribution, desktop environment/version, Wayland or X11 session, GPU/driver, monitor size/resolution, desktop scale, Unity version, and selected Editor scale. Describe what worked and any problems with rendering, input, menus, resizing, or docking.
+
 ## What gets installed and changed
 
 The installer adds the settings app under `~/.local/share/unity-editor-scaling-for-linux`, a `~/.local/bin/unity-scale` command, and an application-menu entry. Preferences live in the installed app's `sandbox/config/unity-scale/settings.json`, keyed by the Editor's canonical executable path. Projects using that Editor share its setting.
